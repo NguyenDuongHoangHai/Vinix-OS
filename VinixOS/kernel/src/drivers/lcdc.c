@@ -1,7 +1,7 @@
 /* ============================================================
  * lcdc.c
  * ------------------------------------------------------------
- * LCD Controller Driver — Raster Mode (TFT 24bpp)
+ * LCD Controller Driver — Raster Mode (TFT 16bpp RGB565)
  * Target: AM335x LCDC
  *
  * Configures LCDC to output 1280x720 @ 60Hz via raster mode.
@@ -15,6 +15,44 @@
 #include "lcdc.h"
 #include "mmio.h"
 #include "uart.h"
+
+/* ============================================================
+ * LCD Pinmux (Control Module)
+ * ============================================================
+ *
+ * BBB connects lcd_data[15:0] + sync signals to TDA19988.
+ * These pins default to GPIO after reset — must be muxed to
+ * LCD function (mode 0) before LCDC can drive them.
+ *
+ * All pins: mode 0, output, no pull, fast slew = 0x00
+ */
+
+#define CTRL_MOD_BASE           0x44E10000
+#define CONF_LCD_DATA0          (CTRL_MOD_BASE + 0x8A0)
+#define CONF_LCD_VSYNC          (CTRL_MOD_BASE + 0x8E0)
+#define CONF_LCD_HSYNC          (CTRL_MOD_BASE + 0x8E4)
+#define CONF_LCD_PCLK           (CTRL_MOD_BASE + 0x8E8)
+#define CONF_LCD_AC_BIAS_EN     (CTRL_MOD_BASE + 0x8EC)  /* DE signal */
+/* Pad config: mode 0, pull disabled (bit 3), RX active (bit 5), fast slew.
+ * RXACTIVE matches TI StarterWare — LCDC module reads pin state for
+ * internal synchronization even on output pins. */
+#define LCD_PAD_MODE0_OUT       0x28
+
+static void lcd_pinmux_setup(void)
+{
+    /* lcd_data0..lcd_data15: offsets 0x8A0, 0x8A4, ..., 0x8DC */
+    for (int i = 0; i < 16; i++) {
+        mmio_write32(CONF_LCD_DATA0 + (i * 4), LCD_PAD_MODE0_OUT);
+    }
+
+    /* Sync and clock signals */
+    mmio_write32(CONF_LCD_VSYNC, LCD_PAD_MODE0_OUT);
+    mmio_write32(CONF_LCD_HSYNC, LCD_PAD_MODE0_OUT);
+    mmio_write32(CONF_LCD_PCLK,  LCD_PAD_MODE0_OUT);
+    mmio_write32(CONF_LCD_AC_BIAS_EN, LCD_PAD_MODE0_OUT);
+
+    uart_printf("[LCDC] LCD pinmux configured (20 pins, mode 0)\n");
+}
 
 /* ============================================================
  * Clock Management Registers
@@ -86,6 +124,7 @@
 
 /* LCD_LCDDMA_CTRL bits */
 #define LCD_DMA_BURST_16        (0x4 << 4)
+#define LCD_DMA_MASTER_PRIO     (1 << 2)    /* High DMA priority */
 
 /* LCD_RASTER_CTRL bits */
 #define LCD_TFT_24BPP_MODE      (1 << 25)
@@ -96,7 +135,7 @@
 
 /* Timing register encoding macros (from U-Boot am335x-fb.c) */
 #define LCD_HORLSB(x)   (((((x) >> 4) - 1) & 0x3F) << 4)
-#define LCD_HORMSB(x)    (((((x) >> 4) - 1) & 0x40) >> 4)
+#define LCD_HORMSB(x)    (((((x) >> 4) - 1) & 0x40) >> 3)
 #define LCD_HFPLSB(x)   ((((x) - 1) & 0xFF) << 16)
 #define LCD_HBPLSB(x)   ((((x) - 1) & 0xFF) << 24)
 #define LCD_HSWLSB(x)   ((((x) - 1) & 0x3F) << 10)
@@ -110,6 +149,7 @@
 #define LCD_HFPMSB(x)    ((((x) - 1) & 0x300) >> 8)
 
 /* Polarity inversion bits in TIMING_2 */
+#define PCLK_INVERT     (1 << 22)   /* Drive data on falling edge of PCLK */
 #define HSYNC_INVERT    (1 << 21)
 #define VSYNC_INVERT    (1 << 20)
 
@@ -119,7 +159,7 @@
 
 #define DISPLAY_WIDTH   1280
 #define DISPLAY_HEIGHT  720
-#define DISPLAY_BPP     32
+#define DISPLAY_BPP     16
 #define DISPLAY_HFP     110
 #define DISPLAY_HBP     220
 #define DISPLAY_HSW     40
@@ -138,7 +178,7 @@
  *
  * Memory layout at FB_PA_BASE:
  *   [0x00 - 0x1F]  Palette header (32 bytes)
- *   [0x20 - ...]   Pixel data (width * height * 4 bytes)
+ *   [0x20 - ...]   Pixel data (width * height * 2 bytes, RGB565)
  */
 
 #define PALETTE_SIZE    32
@@ -178,7 +218,7 @@ static uint32_t *fb_pixels = NULL;  /* pointer to first pixel (after palette) */
 
 #define DPLL_DISP_M     99
 #define DPLL_DISP_N     15      /* divider = N + 1 = 16 */
-#define DPLL_DISP_M2    0       /* M2 register value, actual divider = value + 1 = 1 */
+#define DPLL_DISP_M2    1       /* M2 post-divider = 1 (divide by 1) */
 #define LCDC_CLKDIV     2
 
 static void dpll_disp_setup(void)
@@ -278,7 +318,7 @@ static void framebuffer_setup(void)
         fb_pixels[i] = 0x00000000;
     }
 
-    uart_printf("[LCDC] Framebuffer at PA 0x%x, %dx%d, %dbpp\n",
+    uart_printf("[LCDC] Framebuffer at PA 0x%x, %dx%d, %dbpp (RGB565)\n",
                 FB_PA_BASE, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_BPP);
 }
 
@@ -289,6 +329,9 @@ static void framebuffer_setup(void)
 void lcdc_init(void)
 {
     uart_printf("[LCDC] Initializing LCD Controller...\n");
+
+    /* Step 0: Configure LCD pin mux before enabling LCDC */
+    lcd_pinmux_setup();
 
     /* Step 1: Configure Display PLL for pixel clock */
     dpll_disp_setup();
@@ -310,10 +353,11 @@ void lcdc_init(void)
     mmio_write32(LCDC_BASE + LCD_CTRL,
                  LCD_CLK_DIVISOR(LCDC_CLKDIV) | LCD_RASTER_MODE);
 
-    /* Step 7: Configure DMA — point to framebuffer (palette start) */
-    mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_BASE, FB_PA_BASE + PALETTE_SIZE);
+    /* Step 7: Configure DMA — must include 32-byte palette header.
+     * LCDC reads palette first (0x4000 = raw data bypass), then pixels. */
+    mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_BASE, FB_PA_BASE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL, FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
-    mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_BASE, FB_PA_BASE + PALETTE_SIZE);
+    mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_BASE, FB_PA_BASE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_CEIL, FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_CTRL, LCD_DMA_BURST_16);
 
@@ -331,24 +375,45 @@ void lcdc_init(void)
                  LCD_VSW(DISPLAY_VSW) |
                  LCD_VERLSB(DISPLAY_HEIGHT));
 
+    /* 720p CEA-861: HSYNC/VSYNC are active-high (positive polarity).
+     * IPC set: LCDC drives data on falling edge of PCLK, TDA19988
+     * samples on rising edge (VIP_CNTRL_3 EDGE=0) — half-cycle setup. */
     mmio_write32(LCDC_BASE + LCD_RASTER_TIMING_2,
                  LCD_HSWMSB(DISPLAY_HSW) |
                  LCD_VERMSB(DISPLAY_HEIGHT) |
                  LCD_HBPMSB(DISPLAY_HBP) |
                  LCD_HFPMSB(DISPLAY_HFP) |
-                 HSYNC_INVERT | VSYNC_INVERT |
+                 PCLK_INVERT |
                  0x0000FF00);    /* AC bias frequency */
 
-    /* Step 9: Enable raster output — 24bpp TFT unpacked (32bpp) */
+    /* Step 9: Enable raster output — 16bpp TFT (RGB565 on lcd_data[15:0]) */
     mmio_write32(LCDC_BASE + LCD_RASTER_CTRL,
-                 LCD_TFT_24BPP_UNPACK |
-                 LCD_TFT_24BPP_MODE |
                  LCD_PALMODE_RAWDATA |
                  LCD_TFT_MODE |
                  LCD_RASTER_ENABLE);
 
+    /* Brief delay for first frame DMA to fill FIFO, then clear
+     * startup transient flags (SYNC_LOST, FUF) that fire before
+     * the raster engine stabilizes. */
+    for (volatile int i = 0; i < 50000; i++);
+    mmio_write32(LCDC_BASE + LCD_IRQSTATUS, 0xFFFFFFFF);
+
     uart_printf("[LCDC] Raster output enabled (%dx%d @ 60Hz)\n",
                 DISPLAY_WIDTH, DISPLAY_HEIGHT);
+
+    /* Diagnostic: readback all LCDC registers to verify configuration */
+    uart_printf("[LCDC] Register dump:\n");
+    uart_printf("  LCD_CTRL       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_CTRL));
+    uart_printf("  RASTER_CTRL    = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_CTRL));
+    uart_printf("  TIMING_0       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_0));
+    uart_printf("  TIMING_1       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_1));
+    uart_printf("  TIMING_2       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_2));
+    uart_printf("  DMA_FB0_BASE   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_BASE));
+    uart_printf("  DMA_FB0_CEIL   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL));
+    uart_printf("  DMA_CTRL       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_CTRL));
+    uart_printf("  CLKC_ENABLE    = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_CLKC_ENABLE));
+    uart_printf("  IRQSTATUS_RAW  = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_IRQSTATUS_RAW));
+    uart_printf("  SYSCONFIG      = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_SYSCONFIG));
 }
 
 /* ============================================================

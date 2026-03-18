@@ -55,11 +55,25 @@ void kernel_main(void)
      * We are now running at VA 0xC0xxxxxx. */
     mmu_init();
 
-    /* Graphics subsystem: I2C → LCDC → TDA19988 HDMI */
+    /* Graphics subsystem: I2C → TDA19988 → LCDC
+     * TDA19988 PLL must be configured BEFORE LCDC outputs pixel clock.
+     * If pixel clock is present, TDA PLL auto-locks and divider
+     * registers become hardware-locked (read-only). */
     i2c_init();
     i2c_scan();     /* Diagnostic: print devices found on I2C0 */
-    lcdc_init();
     tda19988_init();
+    lcdc_init();
+    tda19988_post_lcdc_init();  /* PLL retry + HPD check with pixel clock active */
+
+    /* Test: fill framebuffer with solid red to verify HDMI output.
+     * 16bpp RGB565: R=0xF800, G=0x07E0, B=0x001F.
+     * Palette header (32 bytes) precedes pixel data. */
+    {
+        uint16_t *fb = (uint16_t *)(0x80800000 + 32);  /* skip palette */
+        for (int i = 0; i < 1280 * 720; i++)
+            fb[i] = 0xF800;  /* RGB565: pure red */
+        uart_printf("[FB] Framebuffer filled with solid red (1280x720, RGB565)\n");
+    }
 
     intc_init();
     irq_init();

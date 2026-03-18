@@ -39,6 +39,14 @@
 #define   ENAMODS_RXSENS        (1 << 2)  /* Receiver sense */
 #define   ENAMODS_HDMI          (1 << 1)  /* HDMI core */
 
+#define TDA_CEC_FRO_IM_CLK_CTRL  0xFB    /* FRO internal clock control */
+#define   FRO_IM_CLK_CTRL_GHOST_DIS (1 << 7)  /* Disable ghost addresses */
+#define   FRO_IM_CLK_CTRL_IMCLK_SEL (1 << 1)  /* Select internal master clock */
+
+#define TDA_CEC_RXSHPDLEV       0xFE    /* HPD/RXSENS status (read-only) */
+#define   RXSHPDLEV_HPD          (1 << 0)  /* Hot plug detect level */
+#define   RXSHPDLEV_RXSENS      (1 << 1)  /* Receiver sense level */
+
 /* ============================================================
  * HDMI core — Page 0x00 (General Control)
  * ============================================================ */
@@ -53,6 +61,7 @@
 #define REG_I2C_MASTER      TDA_MKREG(0x00, 0x0D)  /* I2C master control */
 #define   I2C_MASTER_DIS_MM (1 << 0)               /* Disable DDC master */
 #define   I2C_MASTER_DIS_FILT (1 << 1)
+#define REG_DDC_DISABLE     TDA_MKREG(0x00, 0x0B)  /* DDC interface disable */
 #define REG_FEAT_POWERDOWN  TDA_MKREG(0x00, 0x0E)  /* Feature powerdown */
 #define   FEAT_POWERDOWN_SPDIF (1 << 3)
 #define REG_ENA_VP_0        TDA_MKREG(0x00, 0x18)  /* Enable video port A */
@@ -156,11 +165,7 @@
 #define   TBG_CNTRL_1_V_EXT     (1 << 5)
 #define   TBG_CNTRL_1_DWIN_DIS  (1 << 6)           /* Disable DE window */
 
-/* Serializer and output */
-#define REG_SERIALIZER          TDA_MKREG(0x00, 0xE8)
-#define REG_BUFFER_OUT          TDA_MKREG(0x00, 0xE9)
-#define REG_PLL_SCG1            TDA_MKREG(0x00, 0xEA)
-#define REG_PLL_SCG2            TDA_MKREG(0x00, 0xEB)
+/* HVF (horizontal/vertical filter) — Page 0x00 */
 #define REG_HVF_CNTRL_0         TDA_MKREG(0x00, 0xE4)
 #define   HVF_CNTRL_0_INTPOL(x) (((x) & 0x3) << 0)
 #define   HVF_CNTRL_0_PREFIL(x) (((x) & 0x3) << 2)
@@ -171,13 +176,10 @@
 #define   HVF_CNTRL_1_PAD(x)    (((x) & 0x3) << 4)
 #define   HVF_CNTRL_1_SEMI_PLANAR (1 << 6)
 #define REG_RPT_CNTRL           TDA_MKREG(0x00, 0xF0)  /* Pixel repetition */
-#define REG_SEL_CLK             TDA_MKREG(0x00, 0xF3)  /* Clock selector */
-#define   SEL_CLK_SEL_VRF_CLK(x) (((x) & 0x3) << 1)
-#define   SEL_CLK_ENA_SC_CLK    (1 << 3)
-#define REG_ANA_GENERAL         TDA_MKREG(0x00, 0xF4)  /* Analog settings */
 
 /* ============================================================
- * HDMI core — Page 0x02 (PLL settings)
+ * HDMI core — Page 0x02 (PLL / Serializer / Analog)
+ * Addresses verified against NXP BSL (tmbslTDA9989_local.h)
  * ============================================================ */
 #define REG_PLL_SERIAL_1        TDA_MKREG(0x02, 0x00)
 #define   PLL_SERIAL_1_SRL_FDN  (1 << 0)
@@ -190,12 +192,20 @@
 #define   PLL_SERIAL_3_SRL_CCIR (1 << 0)
 #define   PLL_SERIAL_3_SRL_DE   (1 << 2)
 #define   PLL_SERIAL_3_SRL_PXIN_SEL (1 << 4)
-#define REG_PLL_SCGN1           TDA_MKREG(0x02, 0x0B)
-#define REG_PLL_SCGN2           TDA_MKREG(0x02, 0x0C)
-#define REG_PLL_SCGR1           TDA_MKREG(0x02, 0x0D)
-#define REG_PLL_SCGR2           TDA_MKREG(0x02, 0x0E)
-#define REG_PLL_SCG1            TDA_MKREG(0x02, 0x0F)
-#define REG_PLL_SCG2            TDA_MKREG(0x02, 0x10)
+#define REG_SERIALIZER          TDA_MKREG(0x02, 0x03)
+#define REG_BUFFER_OUT          TDA_MKREG(0x02, 0x04)
+#define REG_PLL_SCG1            TDA_MKREG(0x02, 0x05)
+#define REG_PLL_SCG2            TDA_MKREG(0x02, 0x06)
+#define REG_PLL_SCGN1           TDA_MKREG(0x02, 0x07)
+#define REG_PLL_SCGN2           TDA_MKREG(0x02, 0x08)
+#define REG_PLL_SCGR1           TDA_MKREG(0x02, 0x09)
+#define REG_PLL_SCGR2           TDA_MKREG(0x02, 0x0A)
+#define REG_AUDIO_DIV           TDA_MKREG(0x02, 0x0E)  /* Audio clock divider */
+#define   AUDIO_DIV_SERCLK_8   0x03                    /* SERCLK / 8 */
+#define REG_SEL_CLK             TDA_MKREG(0x02, 0x11)
+#define   SEL_CLK_SEL_VRF_CLK(x) (((x) & 0x3) << 1)
+#define   SEL_CLK_ENA_SC_CLK    (1 << 3)
+#define REG_ANA_GENERAL         TDA_MKREG(0x02, 0x12)
 
 /* ============================================================
  * HDMI core — Page 0x10 (InfoFrame / Packet)
@@ -229,5 +239,15 @@
  * - LCDC must be generating pixel clock (VCLK) before TDA PLL can lock
  */
 void tda19988_init(void);
+
+/**
+ * Post-LCDC diagnostic and PLL retry.
+ * Call AFTER lcdc_init() so pixel clock is present.
+ *
+ * - Reads HPD/RXSENS to verify cable detection
+ * - Re-reads PLL registers (should now reflect values if PLL is clocked)
+ * - If PLL still shows 0, re-writes PLL config
+ */
+void tda19988_post_lcdc_init(void);
 
 #endif /* TDA19988_H */

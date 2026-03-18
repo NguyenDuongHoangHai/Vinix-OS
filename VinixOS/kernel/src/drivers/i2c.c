@@ -268,12 +268,12 @@ void i2c_init(void)
     val = mmio_read32(I2C0_BASE + I2C_REVNB_LO);
     uart_printf("[I2C] Module revision = 0x%x\n", val);
 
-    /* Physical bus state: SCL_I=bit11, SDA_I=bit9
+    /* Physical bus state: SCL_I_FUNC=bit8, SDA_I_FUNC=bit6
      * Both should be 1 (pulled high) when bus is idle.
      * If either is 0 → stuck low → hardware/pinmux problem. */
     val = mmio_read32(I2C0_BASE + I2C_SYSTEST);
     uart_printf("[I2C] SYSTEST=0x%x  SCL_I=%d  SDA_I=%d  (1=high=OK)\n",
-                val, (val >> 11) & 1, (val >> 9) & 1);
+                val, (val >> 8) & 1, (val >> 6) & 1);
 
     uart_printf("[I2C] I2C0 initialized (100kHz standard mode)\n");
 }
