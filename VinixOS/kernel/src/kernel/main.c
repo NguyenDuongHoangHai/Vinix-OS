@@ -21,7 +21,7 @@
 #include "lcdc.h"
 #include "tda19988.h"
 #include "fb.h"
-#include "display_task.h"
+#include "boot_screen.h"
 /* ============================================================
  * User Space Payload (Defined in payload.S)
  * ============================================================ */
@@ -68,73 +68,67 @@ void kernel_main(void)
     lcdc_start_raster();        /* Start pixel clock — TDA needs this for TMDS */
     tda19988_init();            /* Full TDA config with pixel clock present */
 
-    /* Framebuffer ready — display task will handle boot screen */
     fb_init();
 
     intc_init();
     irq_init();
-    uart_enable_rx_interrupt(); /* Enable UART RX interrupt for keyboard input */
-    timer_init();
+    uart_enable_rx_interrupt();
 
     /* 1.6 Initialize VFS and mount RAMFS */
     uart_printf("[BOOT] Initializing Virtual File System...\n");
     vfs_init();
-    
-    /* Initialize RAMFS */
+
     if (ramfs_init() != E_OK) {
         uart_printf("[BOOT] ERROR: Failed to initialize RAMFS\n");
         while (1);
     }
-    
-    /* Mount RAMFS at root */
+
     if (vfs_mount("/", ramfs_get_operations()) != E_OK) {
         uart_printf("[BOOT] ERROR: Failed to mount RAMFS at /\n");
         while (1);
     }
 
-    /* 1.7 Load User Payload to 0x40000000 */
+    /* 1.7 Load User Payload */
     uint32_t payload_size = (uint32_t)&_shell_payload_end - (uint32_t)&_shell_payload_start;
     uart_printf("[BOOT] Loading User App Payload to 0x%x (Size: %d bytes)\n", USER_SPACE_VA, payload_size);
 
     uint8_t *src = &_shell_payload_start;
     uint8_t *dst = (uint8_t *)USER_SPACE_VA;
     for (uint32_t i = 0; i < payload_size; i++)
-    {
         dst[i] = src[i];
-    }
     uart_printf("[BOOT] Payload successfully copied to User Space.\n");
 
     /* 2. Schedule Initialization */
     scheduler_init();
 
-    /* 3. Add Idle Task (Kernel Mode) */
     struct task_struct *idle_ptr = get_idle_task();
     scheduler_add_task(idle_ptr);
 
-    /* 4. Add Display Task (Kernel Mode — boot screen + HDMI) */
-    struct task_struct *display_ptr = get_display_task();
-    scheduler_add_task(display_ptr);
-
-    /* 5. Add User Application Task (Shell via SDK) */
     shell_task.name = "User App (Shell)";
     shell_task.state = TASK_STATE_READY;
-    shell_task.id = 0; // Will be assigned 1
+    shell_task.id = 0;
 
-    /* True User App Entry = 0x40000000. Stack = End of 1MB User Space. */
     task_stack_init(&shell_task, (void (*)(void))USER_SPACE_VA,
                     (void *)(USER_STACK_BASE - USER_STACK_SIZE),
                     USER_STACK_SIZE);
 
     if (scheduler_add_task(&shell_task) < 0)
-    {
         uart_printf("[BOOT] Failed to add User App Task\n");
-    }
 
-    uart_printf("[BOOT] Boot complete.\n");
+    uart_printf("[BOOT] UART init complete. Starting HDMI boot screen...\n");
 
-    /* Enable IRQ and start scheduler */
+    /* 3. Boot screen on HDMI — uses timer_early_init() for accurate delay.
+     *    MUST run BEFORE timer_init() which reconfigures timer to 10ms auto-reload.
+     *    delay_ms() needs free-running counter, not auto-reload. */
+    timer_early_init();
+    boot_screen_run();
+
+    /* 4. Now reconfigure timer for scheduler (10ms auto-reload + IRQ) */
+    timer_init();
+
+    uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
+
     irq_enable();
-
     scheduler_start();
 
     /* Should never reach here */

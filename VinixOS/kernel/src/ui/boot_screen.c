@@ -8,13 +8,7 @@
 #include "boot_screen.h"
 #include "fb.h"
 #include "lcdc.h"
-
-/* Short delay (~ms scale). Calibrated for Cortex-A8 @ ~550MHz. */
-static void delay_ms(uint32_t ms)
-{
-    volatile uint32_t count = ms * 5000;
-    while (count--);
-}
+#include "timer.h"
 
 /* ============================================================
  * Screen 1: Boot Log
@@ -54,7 +48,7 @@ static void show_boot_log(void)
         "Board: BeagleBone Black Rev.C",
         "SoC: Texas Instruments AM335x",
         "Memory: 256MB DDR3 @ 400MHz",
-        "MMU: Virtual memory enabled (3G/1G split)",
+        "MMU: Virtual memory enabled",
         "Watchdog: Disabled",
         "I2C0: Bus initialized (100kHz)",
         "LCDC: Framebuffer 800x600 RGB565",
@@ -65,10 +59,9 @@ static void show_boot_log(void)
         "UART0: Console 115200 8N1",
         "Storage: SD/MMC card mounted",
         "VFS: Virtual filesystem mounted at /",
-        "Tasks: Idle + Shell + Display loaded",
         "Scheduler: Round-robin preemptive ready",
     };
-    uint32_t n_labels = 17;
+    uint32_t n_labels = sizeof(labels) / sizeof(labels[0]);
 
     for (uint32_t i = 0; i < n_labels; i++) {
         fb_puts(cx, cy, "[ ", txt_col, bg);
@@ -76,14 +69,14 @@ static void show_boot_log(void)
         fb_puts(cx + 4 * FB_FONT_W, cy, " ]  ", txt_col, bg);
         fb_puts(cx + 8 * FB_FONT_W, cy, labels[i], txt_col, bg);
         cy += line_h;
-        delay_ms(80);
+        delay_ms(300);
     }
 
     /* Boot complete */
     cy += line_h / 2;
     fb_puts(cx, cy, "Boot complete. All services ready.", done_col, bg);
 
-    delay_ms(400);
+    delay_ms(1000);
 }
 
 /* ============================================================
@@ -131,9 +124,42 @@ static void show_splash(void)
             fb_fillrect(dot_x, dots_y, 3 * FB_FONT_W, FB_FONT_H, bg);
             for (int d = 0; d < dots; d++)
                 fb_draw_char(dot_x + d * FB_FONT_W, dots_y, '.', dot_col, bg);
-            delay_ms(150);
+            delay_ms(500);
         }
     }
+}
+
+/* ============================================================
+ * Screen 3: Home
+ * ============================================================ */
+
+static void show_home(void)
+{
+    uint32_t sw = lcdc_get_width();
+    uint32_t sh = lcdc_get_height();
+    uint16_t bg     = FB_RGB(30, 30, 50);
+    uint16_t border = FB_RGB(100, 140, 180);
+    uint16_t txt    = FB_WHITE;
+
+    fb_clear(bg);
+
+    /* Centered frame */
+    uint32_t fw = 300, fh = 160;
+    uint32_t fx = (sw - fw) / 2;
+    uint32_t fy = (sh - fh) / 2;
+
+    /* Border 2px */
+    fb_fillrect(fx, fy, fw, 2, border);
+    fb_fillrect(fx, fy + fh - 2, fw, 2, border);
+    fb_fillrect(fx, fy, 2, fh, border);
+    fb_fillrect(fx + fw - 2, fy, 2, fh, border);
+
+    /* "Home" centered in frame, scale 3 */
+    uint32_t scale = 3;
+    uint32_t tw = 4 * FB_FONT_W * scale;
+    uint32_t th = FB_FONT_H * scale;
+    fb_puts_scaled(fx + (fw - tw) / 2, fy + (fh - th) / 2,
+                   "Home", txt, bg, scale);
 }
 
 /* ============================================================
@@ -144,4 +170,5 @@ void boot_screen_run(void)
 {
     show_boot_log();
     show_splash();
+    show_home();
 }

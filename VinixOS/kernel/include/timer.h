@@ -41,4 +41,18 @@ void timer_init(void);
  */
 uint32_t timer_get_ticks(void);
 
+/**
+ * Early timer init — enables DMTimer2 clock + free-running mode.
+ * Call once before any delay_ms() usage.
+ * timer_init() later reconfigures for scheduler interrupts.
+ */
+void timer_early_init(void);
+
+/**
+ * Accurate millisecond delay using DMTimer2 hardware counter.
+ * Requires timer_early_init() or timer_init() called first.
+ * Polling-based — no interrupts needed.
+ */
+void delay_ms(uint32_t ms);
+
 #endif /* TIMER_H */

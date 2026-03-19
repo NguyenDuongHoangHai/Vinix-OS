@@ -203,9 +203,9 @@ void timer_init(void)
     uart_printf("[TIMER] Performing soft reset...\n");
     mmio_write32(DMTIMER2_BASE + TIOCP_CFG, TIOCP_SOFTRESET);
     
-    /* Wait for reset done */
+    /* Wait for reset done — TIOCP_CFG bit 0 self-clears (standard DMTimer2-7) */
     uint32_t timeout = 10000;
-    while (!(mmio_read32(DMTIMER2_BASE + TISTAT) & TISTAT_RESETDONE) && timeout--) {
+    while ((mmio_read32(DMTIMER2_BASE + TIOCP_CFG) & TIOCP_SOFTRESET) && timeout--) {
         /* Busy wait */
     }
     
@@ -293,4 +293,53 @@ void timer_init(void)
 uint32_t timer_get_ticks(void)
 {
     return timer_ticks;
+}
+
+/* ============================================================
+ * Early Init + Polling Delay
+ *
+ * timer_early_init(): enable clock, reset, start free-running.
+ * delay_ms(): poll TCRR counter for accurate ms delay.
+ * Safe to call before timer_init() — timer_init() reconfigures.
+ * ============================================================ */
+
+#define TIMER_FCLK_HZ   24000000
+#define TICKS_PER_MS     (TIMER_FCLK_HZ / 1000)   /* 24000 */
+
+void timer_early_init(void)
+{
+    /* 1. Wake L4LS clock domain */
+    if ((mmio_read32(CM_PER_L4LS_CLKSTCTRL) & CLKTRCTRL_MASK) != CLKTRCTRL_SW_WKUP)
+        mmio_write32(CM_PER_L4LS_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
+
+    /* 2. Select 24MHz M_OSC as Timer2 FCLK source */
+    #define CM_DPLL_BASE                0x44E00500
+    #define CM_DPLL_CLKSEL_TIMER2_CLK  (CM_DPLL_BASE + 0x08)
+    #define CLKSEL_CLK_M_OSC            0x1
+
+    mmio_write32(CM_DPLL_CLKSEL_TIMER2_CLK, CLKSEL_CLK_M_OSC);
+    while ((mmio_read32(CM_DPLL_CLKSEL_TIMER2_CLK) & 0x3) != CLKSEL_CLK_M_OSC)
+        ;
+
+    /* 3. Enable module clock */
+    mmio_write32(CM_PER_TIMER2_CLKCTRL, MODULEMODE_ENABLE);
+    while (((mmio_read32(CM_PER_TIMER2_CLKCTRL) >> IDLEST_SHIFT) & IDLEST_MASK) != IDLEST_FUNC)
+        ;
+
+    /* 4. Soft reset — TIOCP_CFG bit 0 self-clears (standard DMTimer2-7) */
+    mmio_write32(DMTIMER2_BASE + TIOCP_CFG, TIOCP_SOFTRESET);
+    while (mmio_read32(DMTIMER2_BASE + TIOCP_CFG) & TIOCP_SOFTRESET)
+        ;
+
+    /* 5. Start free-running (ST=1, no auto-reload, no interrupt) */
+    mmio_write32(DMTIMER2_BASE + TCLR, TCLR_ST);
+}
+
+void delay_ms(uint32_t ms)
+{
+    uint32_t start = mmio_read32(DMTIMER2_BASE + TCRR);
+    uint32_t ticks = ms * TICKS_PER_MS;
+
+    while ((mmio_read32(DMTIMER2_BASE + TCRR) - start) < ticks)
+        ;
 }
