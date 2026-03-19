@@ -33,7 +33,7 @@ RAMFS_GENERATED_S = $(BUILD_DIR)/ramfs_payload.S
 # Objects (Flattened in BUILD_DIR)
 ASM_OBJ = $(addprefix $(BUILD_DIR)/, vectors.o reset.o entry.o exception_entry.o context_switch.o mmu_enable.o)
 C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o watchdog.o intc.o timer.o \
-               i2c.o lcdc.o tda19988.o \
+               i2c.o lcdc.o tda19988.o fb.o boot_screen.o display_task.o \
                scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o ramfs.o ramfs_generated.o string.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
@@ -130,6 +130,15 @@ $(BUILD_DIR)/lcdc.o: $(SRC)/drivers/lcdc.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/tda19988.o: $(SRC)/drivers/tda19988.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/fb.o: $(SRC)/drivers/fb.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/boot_screen.o: $(SRC)/ui/boot_screen.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/display_task.o: $(SRC)/ui/display_task.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Assembly files - MMU

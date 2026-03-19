@@ -4,7 +4,7 @@
  * LCD Controller Driver — Raster Mode (TFT 16bpp RGB565)
  * Target: AM335x LCDC
  *
- * Configures LCDC to output 1280x720 @ 60Hz via raster mode.
+ * Configures LCDC to output 800x600 @ 60Hz via raster mode.
  * DMA engine reads framebuffer from DDR3 and outputs pixel
  * data on LCD pins (consumed by TDA19988 HDMI transmitter).
  *
@@ -222,13 +222,12 @@ static uint16_t *fb_pixels = NULL;  /* pointer to first pixel (after palette), R
  * DPLL_DISP generates LCD_CLK.
  * LCD_PCLK = LCD_CLK / CLKDIV (CLKDIV is in LCD_CTRL register).
  *
- * Target: 25 MHz pixel clock (640x480@60Hz, VESA spec = 25.175 MHz)
+ * Target: 40 MHz pixel clock (800x600@60Hz)
  *
- * DPLL formula: Fdpll = CLKINP * M / (N + 1)
+ * DPLL formula: Fdpll = CLKINP * M / (N + 1) / M2
  * CLKINP = 24 MHz
  *
  * CLKDIV must be >= 2 (AM335x TRM: CLKDIV=0 or 1 is invalid).
- * DPLL output = 2 × 40 = 80 MHz.
  * M=10, N=2, M2=1: Fdpll = 24 * 10 / 3 = 80 MHz
  * CLKDIV=2: LCD_PCLK = 80 / 2 = 40 MHz ✓
  */
@@ -243,7 +242,7 @@ static void dpll_disp_setup(void)
     uint32_t val;
     uint32_t timeout;
 
-    uart_printf("[LCDC] Configuring Display PLL (M=%d, N=%d)...\n", DPLL_DISP_M, DPLL_DISP_N);
+    /* Configure Display PLL */
 
     /* Put DPLL in MN bypass before reconfiguring */
     val = mmio_read32(CM_CLKMODE_DPLL_DISP);
@@ -345,8 +344,6 @@ static void framebuffer_setup(void)
 
 void lcdc_init(void)
 {
-    uart_printf("[LCDC] Initializing LCD Controller...\n");
-
     /* Step 0: Configure LCD pin mux before enabling LCDC */
     lcd_pinmux_setup();
 
@@ -418,47 +415,8 @@ void lcdc_init(void)
                  HSYNC_INVERT |
                  0x0000FF00);    /* AC bias frequency */
 
-    /* Raster NOT enabled here — call lcdc_start_raster() after TDA19988 is
-     * fully configured, matching QNX production driver init order. */
-
-    uart_printf("[LCDC] Configuration complete (raster not yet started)\n");
-
-    /* Print LCDC register state for verification */
-    uart_printf("[LCDC] === Register Dump ===\n");
-    uart_printf("  LCD_CTRL       = 0x%08x  (expect: CLKDIV=%d, raster mode)\n",
-                mmio_read32(LCDC_BASE + LCD_CTRL), LCDC_CLKDIV);
-
-    uint32_t t0 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_0);
-    uint32_t t1 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_1);
-    uint32_t t2 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_2);
-    uart_printf("  TIMING_0       = 0x%08x\n", t0);
-    uart_printf("  TIMING_1       = 0x%08x\n", t1);
-    uart_printf("  TIMING_2       = 0x%08x\n", t2);
-
-    uint32_t ppllsb = (t0 >> 4) & 0x3F;
-    uint32_t pplmsb_bit3 = (t0 >> 3) & 0x1;
-    uart_printf("  PPL=%d → width=%d pixels\n",
-                (pplmsb_bit3 << 6) | ppllsb, 16 * (((pplmsb_bit3 << 6) | ppllsb) + 1));
-
-    uint32_t lpplsb = t1 & 0x3FF;
-    uart_printf("  LPP=%d → height=%d lines\n", lpplsb, lpplsb + 1);
-
-    uart_printf("  TIMING_2 flags: SYNC_CTRL=%d  SYNC_EDGE=%d  PCLK_INV=%d  HS_INV=%d  VS_INV=%d\n",
-                (t2 >> 25) & 1, (t2 >> 24) & 1, (t2 >> 22) & 1, (t2 >> 21) & 1, (t2 >> 20) & 1);
-
-    uart_printf("  DMA_FB0_BASE   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_BASE));
-    uart_printf("  DMA_FB0_CEIL   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL));
-    uart_printf("  DMA_CTRL       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_CTRL));
-
-    uart_printf("[LCDC] === Clock Status ===\n");
-    uart_printf("  DPLL_DISP IDLEST   = 0x%08x  (bit0=1 → locked)\n",
-                mmio_read32(CM_IDLEST_DPLL_DISP));
-    uart_printf("  DPLL_DISP CLKSEL   = 0x%08x  (M=%d N=%d)\n",
-                mmio_read32(CM_CLKSEL_DPLL_DISP), DPLL_DISP_M, DPLL_DISP_N);
-    uart_printf("  Computed: DPLL=%dMHz / CLKDIV=%d = %d.%02dMHz pixel clock\n",
-                (24 * DPLL_DISP_M) / (DPLL_DISP_N + 1), LCDC_CLKDIV,
-                (24 * DPLL_DISP_M) / (DPLL_DISP_N + 1) / LCDC_CLKDIV,
-                ((24 * DPLL_DISP_M * 100) / (DPLL_DISP_N + 1) / LCDC_CLKDIV) % 100);
+    uart_printf("[LCDC] 800x600 @ %dMHz ready\n",
+                (24 * DPLL_DISP_M) / (DPLL_DISP_N + 1) / LCDC_CLKDIV);
 }
 
 /* ============================================================
@@ -470,29 +428,18 @@ void lcdc_init(void)
 
 void lcdc_start_raster(void)
 {
-    uart_printf("[LCDC] Starting raster output...\n");
-
-    /* Enable raster: 16bpp RGB565 TFT, raw data palette bypass */
     mmio_write32(LCDC_BASE + LCD_RASTER_CTRL,
                  LCD_PALMODE_RAWDATA |
                  LCD_TFT_MODE |
                  LCD_RASTER_ENABLE);
 
-    /* Wait for DMA to fill FIFO and raster to stabilize */
+    /* Brief wait for DMA to fill FIFO */
     for (volatile uint32_t i = 0; i < 20000; i++);
 
-    /* Clear startup transient flags */
+    /* Clear startup transient IRQ flags */
     mmio_write32(LCDC_BASE + LCD_IRQSTATUS, 0xFFFFFFFF);
 
-    /* Delay then check for persistent errors */
-    for (volatile uint32_t i = 0; i < 5000000; i++);
-    uint32_t irq = mmio_read32(LCDC_BASE + LCD_IRQSTATUS_RAW);
-
-    uart_printf("[LCDC] Raster output enabled (%dx%d @ 60Hz)\n",
-                DISPLAY_WIDTH, DISPLAY_HEIGHT);
-    uart_printf("[LCDC] RASTER_CTRL = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_CTRL));
-    uart_printf("[LCDC] IRQ status  = 0x%08x%s\n", irq,
-                (irq & (1 << 5)) ? "  SYNC_LOST!" : "  (clean)");
+    uart_printf("[LCDC] Raster active\n");
 }
 
 /* ============================================================

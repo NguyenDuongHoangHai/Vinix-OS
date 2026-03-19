@@ -244,7 +244,7 @@
  * ============================================================ */
 
 /**
- * Initialize TDA19988 HDMI transmitter for 1280x720@60Hz RGB output
+ * Initialize TDA19988 HDMI transmitter for 800x600@60Hz RGB output
  *
  * Full init sequence matching QNX production driver order:
  * 1. CEC enable + soft reset
@@ -253,8 +253,7 @@
  * 4. Enable video/audio ports + VIP mux (dpms)
  * 5. Full video path config: timing, TBG, encoder (mode_set)
  *
- * Must be called BEFORE lcdc_start_raster() so TDA is ready
- * to receive pixel data when LCDC raster starts.
+ * Called after lcdc_start_raster() — TDA needs pixel clock from LCDC.
  *
  * CONTRACT:
  * - Must be called after i2c_init()

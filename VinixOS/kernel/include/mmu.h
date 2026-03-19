@@ -149,7 +149,7 @@
 #define PERIPH_L4_PER_SECTIONS 4
 
 /* Framebuffer: 4MB in DDR3, identity mapped (CPU writes, LCDC DMA reads)
- * 1280x720x4 = 3.52MB → 4 sections @ 1MB granularity
+ * 800x600x2 = 0.9MB (current), 4 sections reserved for future resolutions
  * Placed after Kernel (5MB) + User (1MB) + 2MB margin = offset 8MB
  * Spans: 0x80800000 – 0x80BFFFFF */
 #define FB_PA_BASE      0x80800000

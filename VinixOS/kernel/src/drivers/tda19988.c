@@ -121,39 +121,20 @@ static void tda_write16(uint16_t reg_msb, uint16_t val16)
 
 static void tda_probe(void)
 {
-    uint16_t version;
-
-    /* Wake up device */
     tda_cec_write(TDA_CEC_ENAMODS, ENAMODS_RXSENS | ENAMODS_HDMI);
-    uart_printf("[TDA] CEC modules enabled\n");
 
-    /* Reset audio and I2C master (DDC). */
-    uart_printf("[TDA] soft reset: writing SOFTRESET...\n");
+    /* Soft reset */
     tda_write(REG_SOFTRESET, SOFTRESET_AUDIO | SOFTRESET_I2C);
-    uart_printf("[TDA] soft reset: delay 1...\n");
-    tda_mdelay(100);
-    uart_printf("[TDA] soft reset: clearing SOFTRESET...\n");
+    tda_mdelay(50);
     tda_write(REG_SOFTRESET, 0);
-    uart_printf("[TDA] soft reset: delay 2...\n");
-    tda_mdelay(100);
-    uart_printf("[TDA] soft reset: done\n");
+    tda_mdelay(50);
 
-    /* Transmitter core reset — all production drivers (Linux, U-Boot, QNX) do this.
-     * Previous testing showed SCG registers (audio PLL) fail after SR, but those
-     * are audio-only. Video PLL (SERIAL_2, ANA_GENERAL) still works fine. */
+    /* Core reset */
     tda_set(REG_MAIN_CNTRL0, MAIN_CNTRL0_SR);
     tda_clear(REG_MAIN_CNTRL0, MAIN_CNTRL0_SR);
-
-    /* Invalidate page cache after reset */
     g_current_page = 0xFF;
 
-    uart_printf("[TDA] HDMI core reset complete (soft + SR)\n");
-
-    /* PLL common config — IMMEDIATELY after reset, BEFORE pixel clock.
-     * This is the exact order in Linux/U-Boot/QNX production drivers.
-     * Previous attempt deferred PLL to post_lcdc_init → registers locked
-     * because pixel clock was already running (hardware auto-control). */
-    uart_printf("[TDA] Writing PLL config (before LCDC, like production drivers)...\n");
+    /* PLL common config */
     tda_write(REG_PLL_SERIAL_1, 0x00);
     tda_write(REG_PLL_SERIAL_2, PLL_SERIAL_2_SRL_NOSC(1));
     tda_write(REG_PLL_SERIAL_3, 0x00);
@@ -167,43 +148,13 @@ static void tda_probe(void)
     tda_write(REG_PLL_SCGR1,    0x5B);
     tda_write(REG_PLL_SCGR2,    0x00);
     tda_write(REG_PLL_SCG2,     0x10);
-
-    /* Verify PLL writes BEFORE pixel clock */
-    {
-        uint8_t sc = 0, sn = 0, s2 = 0;
-        tda_read(REG_SEL_CLK, &sc);
-        tda_read(REG_PLL_SCGN1, &sn);
-        tda_read(REG_PLL_SCG2, &s2);
-        uart_printf("[TDA] PLL pre-LCDC: SEL_CLK=0x%02x SCGN1=0x%02x SCG2=0x%02x\n",
-                    sc, sn, s2);
-    }
-
-    /* Default MUX register */
     tda_write(REG_MUX_VP_VIP_OUT, 0x24);
 
-    /* Read version */
-    version = 0;
-    {
-        uint8_t lo = 0, hi = 0;
-        tda_read(REG_VERSION, &lo);
-        tda_read(REG_VERSION_MSB, &hi);
-        version = ((uint16_t)hi << 8) | lo;
-    }
-    uart_printf("[TDA] Chip version: 0x%04x (expected 0x%04x)%s\n",
-                version, TDA19988_VERSION,
-                (version == TDA19988_VERSION) ? " OK" : " MISMATCH!");
-
-    /* Enable DDC */
+    /* DDC + FRO */
     tda_write(REG_DDC_DISABLE, 0x00);
-
-    /* Disable multi-master on I2C */
     tda_set(REG_I2C_MASTER, I2C_MASTER_DIS_MM);
-
-    /* FRO clock config */
     tda_cec_write(TDA_CEC_FRO_IM_CLK_CTRL,
                   FRO_IM_CLK_CTRL_GHOST_DIS | FRO_IM_CLK_CTRL_IMCLK_SEL);
-
-    uart_printf("[TDA] Probe complete (PLL written before LCDC)\n");
 }
 
 /* ============================================================
@@ -220,7 +171,7 @@ static void tda_write_avi_infoframe(void)
     /* Step 1: Disable IF2 transmission before writing */
     tda_clear(REG_DIP_IF_FLAGS, DIP_IF_FLAGS_IF1);
 
-    /* Step 2: Build AVI InfoFrame for 720p RGB (CEA-861 VIC=4) */
+    /* Step 2: Build AVI InfoFrame for 800x600 RGB */
     buf[0]  = 0x82;   /* HB0: AVI InfoFrame type */
     buf[1]  = 0x02;   /* HB1: version 2 */
     buf[2]  = 0x0D;   /* HB2: length = 13 bytes */
@@ -250,8 +201,7 @@ static void tda_write_avi_infoframe(void)
     /* Step 4: Enable IF2 transmission */
     tda_set(REG_DIP_IF_FLAGS, DIP_IF_FLAGS_IF1);
 
-    uart_printf("[TDA] AVI InfoFrame: checksum=0x%02x, PB1=0x%02x PB2=0x%02x VIC=%d\n",
-                buf[3], buf[4], buf[5], buf[7]);
+    /* AVI InfoFrame loaded */
 }
 
 /* ============================================================
@@ -264,9 +214,7 @@ static void tda_enable_video(void)
      * 1. encoder_dpms(): enable ports + VIP mux
      * 2. encoder_mode_set(): mute audio, config timing, TBG, enable HDMI */
 
-    uart_printf("[TDA] enable_720p: step 1 — enable ports + VIP mux (QNX dpms)\n");
-
-    /* QNX tda998x_encoder_dpms (hdmi.c line 443-453) */
+    /* Enable ports + VIP mux */
     tda_write(REG_ENA_AP, 0x03);    /* Audio ports (QNX enables these) */
     tda_write(REG_ENA_VP_0, 0xFF);
     tda_write(REG_ENA_VP_1, 0xFF);
@@ -276,9 +224,6 @@ static void tda_enable_video(void)
     tda_write(REG_VIP_CNTRL_1, 0x01);  /* SWAP_C=0, SWAP_D=1 */
     tda_write(REG_VIP_CNTRL_2, 0x45);  /* SWAP_E=4, SWAP_F=5 */
 
-    uart_printf("[TDA] enable_720p: step 2 — mode set start\n");
-
-    /* QNX tda998x_encoder_mode_set (hdmi.c line 514-608) */
     /* Mute audio FIFO */
     tda_set(REG_AIP_CNTRL_0, AIP_CNTRL_0_RST_FIFO);
 
@@ -289,8 +234,6 @@ static void tda_enable_video(void)
     tda_set(REG_TX33, TX33_HDMI);
     tda_write(REG_ENC_CNTRL, ENC_CNTRL_CTL_CODE(0));
 
-    uart_printf("[TDA] enable_720p: step 3 — video path config\n");
-
     /* No pre-filter or interpolator */
     tda_write(REG_HVF_CNTRL_0, HVF_CNTRL_0_PREFIL(0) | HVF_CNTRL_0_INTPOL(0));
 
@@ -300,9 +243,7 @@ static void tda_enable_video(void)
     /* No test pattern — pass through LCDC pixel data (QNX default) */
     tda_write(REG_VIP_CNTRL_4, VIP_CNTRL_4_BLANKIT(0) | VIP_CNTRL_4_BLC(0));
 
-    uart_printf("[TDA] enable_720p: step 3 — PLL + serializer config (page 0x02)\n");
-
-    /* QNX uses read-modify-write clears for PLL_SERIAL bits */
+    /* PLL + serializer */
     tda_clear(REG_PLL_SERIAL_3, PLL_SERIAL_3_SRL_CCIR);
     tda_clear(REG_PLL_SERIAL_1, PLL_SERIAL_1_SRL_MAN_IZ);
     tda_clear(REG_PLL_SERIAL_3, PLL_SERIAL_3_SRL_DE);
@@ -322,20 +263,8 @@ static void tda_enable_video(void)
     /* Analog output — critical for TMDS signal generation */
     tda_write(REG_ANA_GENERAL, 0x09);
 
-    /* Verify SEL_CLK and ANA_GENERAL */
-    {
-        uint8_t sc = 0, ag = 0;
-        tda_read(REG_SEL_CLK, &sc);
-        tda_read(REG_ANA_GENERAL, &ag);
-        uart_printf("[TDA]   SEL_CLK=0x%02x ANA_GENERAL=0x%02x\n", sc, ag);
-    }
-
-    uart_printf("[TDA] enable_720p: step 4 — analog + color config\n");
-
-    uart_printf("[TDA] enable_720p: step 5 — timing registers (QNX formula)\n");
-
-    /* All timing values calculated from QNX hdmi.c tda998x_encoder_mode_set()
-     * using drm_1280x720 struct. See defines at top of file. */
+    /* Timing registers — QNX formula from tda998x_encoder_mode_set()
+     * using QNX drm_display_mode struct. See defines at top of file. */
 
     tda_write(REG_VIDFORMAT, 0x00);
 
@@ -395,13 +324,7 @@ static void tda_enable_video(void)
      * NXP BSL pattern: disable IF2 → write → enable IF2. */
     tda_write_avi_infoframe();
 
-    uart_printf("[TDA] enable_720p: step 6 — TBG + timing + AVI done\n");
-    uart_printf("[TDA] Timing: REFPIX=%d REFLINE=%d DE=%d-%d VWIN=%d-%d\n",
-                TDA_REF_PIX, TDA_REF_LINE,
-                TDA_DE_PIX_S, TDA_DE_PIX_E,
-                TDA_VWIN1_LINE_S, TDA_VWIN1_LINE_E);
-
-    uart_printf("[TDA] enable_720p: done\n");
+    /* Video path ready */
 }
 
 /* ============================================================
@@ -410,62 +333,7 @@ static void tda_enable_video(void)
 
 void tda19988_init(void)
 {
-    uint8_t v = 0;
-
-    uart_printf("[TDA] Initializing TDA19988 HDMI transmitter\n");
-
-    /* Step 1: Probe — CEC enable, reset, PLL common config, version */
     tda_probe();
-
-    /* Step 2: HPD check */
-    if (i2c_read_reg(TDA_CEC_I2C_ADDR, TDA_CEC_RXSHPDLEV, &v) == 0) {
-        uart_printf("[TDA] HPD=%d  RXSENS=%d\n", v & 1, (v >> 1) & 1);
-    }
-
-    /* Step 3: Enable ports + VIP mux + full video path (QNX: dpms → mode_set)
-     * This runs BEFORE LCDC raster starts, matching QNX init_hdmi() order. */
     tda_enable_video();
-    uart_printf("[TDA] Video path configured (800x600@60Hz)\n");
-    uart_printf("[TDA] Waiting for LCDC raster to provide pixel clock + data\n");
-
-    /* Comprehensive diagnostic readback */
-    {
-        uint8_t v = 0;
-        tda_read(REG_PLL_SERIAL_2, &v);
-        uart_printf("[TDA] DIAG: PLL_SERIAL_2=0x%02x\n", v);
-        tda_read(REG_SEL_CLK, &v);
-        uart_printf("[TDA] DIAG: SEL_CLK=0x%02x\n", v);
-        tda_read(REG_ANA_GENERAL, &v);
-        uart_printf("[TDA] DIAG: ANA_GENERAL=0x%02x\n", v);
-        tda_read(REG_VIP_CNTRL_0, &v);
-        uart_printf("[TDA] DIAG: VIP_CNTRL_0=0x%02x\n", v);
-        tda_read(REG_VIP_CNTRL_1, &v);
-        uart_printf("[TDA] DIAG: VIP_CNTRL_1=0x%02x\n", v);
-        tda_read(REG_VIP_CNTRL_2, &v);
-        uart_printf("[TDA] DIAG: VIP_CNTRL_2=0x%02x\n", v);
-        tda_read(REG_VIP_CNTRL_3, &v);
-        uart_printf("[TDA] DIAG: VIP_CNTRL_3=0x%02x\n", v);
-        tda_read(REG_VIP_CNTRL_4, &v);
-        uart_printf("[TDA] DIAG: VIP_CNTRL_4=0x%02x\n", v);
-        tda_read(REG_TBG_CNTRL_0, &v);
-        uart_printf("[TDA] DIAG: TBG_CNTRL_0=0x%02x\n", v);
-        tda_read(REG_TBG_CNTRL_1, &v);
-        uart_printf("[TDA] DIAG: TBG_CNTRL_1=0x%02x\n", v);
-        tda_read(REG_TX33, &v);
-        uart_printf("[TDA] DIAG: TX33=0x%02x (HDMI=%d)\n", v, (v >> 1) & 1);
-        tda_read(REG_ENC_CNTRL, &v);
-        uart_printf("[TDA] DIAG: ENC_CNTRL=0x%02x\n", v);
-        tda_read(REG_MUX_VP_VIP_OUT, &v);
-        uart_printf("[TDA] DIAG: MUX_VP_VIP_OUT=0x%02x\n", v);
-        tda_read(REG_MAT_CONTRL, &v);
-        uart_printf("[TDA] DIAG: MAT_CONTRL=0x%02x\n", v);
-        tda_read(REG_DIP_IF_FLAGS, &v);
-        uart_printf("[TDA] DIAG: DIP_IF_FLAGS=0x%02x\n", v);
-        tda_read(REG_FEAT_POWERDOWN, &v);
-        uart_printf("[TDA] DIAG: FEAT_POWERDOWN=0x%02x\n", v);
-
-        if (i2c_read_reg(TDA_CEC_I2C_ADDR, TDA_CEC_RXSHPDLEV, &v) == 0) {
-            uart_printf("[TDA] DIAG: HPD=%d RXSENS=%d\n", v & 1, (v >> 1) & 1);
-        }
-    }
+    uart_printf("[HDMI] TDA19988 ready\n");
 }

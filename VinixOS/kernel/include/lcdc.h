@@ -28,7 +28,7 @@
  * Initialize LCDC (configure only, raster NOT started)
  *
  * - Enables LCDC clock and Display PLL
- * - Configures raster mode with 720p @ 60Hz timing
+ * - Configures raster mode with 800x600 @ 60Hz timing
  * - Sets up DMA to read framebuffer from DDR3
  * - Does NOT enable raster output (call lcdc_start_raster() separately)
  *
