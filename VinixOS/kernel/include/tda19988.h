@@ -63,6 +63,8 @@
 #define   I2C_MASTER_DIS_FILT (1 << 1)
 #define REG_DDC_DISABLE     TDA_MKREG(0x00, 0x0B)  /* DDC interface disable */
 #define REG_FEAT_POWERDOWN  TDA_MKREG(0x00, 0x0E)  /* Feature powerdown */
+#define   FEAT_POWERDOWN_PREFILT (1 << 0)
+#define   FEAT_POWERDOWN_CSC   (1 << 1)
 #define   FEAT_POWERDOWN_SPDIF (1 << 3)
 #define REG_ENA_VP_0        TDA_MKREG(0x00, 0x18)  /* Enable video port A */
 #define REG_ENA_VP_1        TDA_MKREG(0x00, 0x19)  /* Enable video port B */
@@ -88,6 +90,7 @@
 #define   VIP_CNTRL_4_BLANKIT(x) (((x) & 0x3) << 2)
 #define   VIP_CNTRL_4_CLK_INV (1 << 4)
 #define   VIP_CNTRL_4_CCIR656 (1 << 5)
+#define   VIP_CNTRL_4_TST_PAT (1 << 7)
 #define REG_VIP_CNTRL_5     TDA_MKREG(0x00, 0x25)
 #define   VIP_CNTRL_5_SP_CNT(x) (((x) & 0x3) << 0)
 
@@ -177,6 +180,19 @@
 #define   HVF_CNTRL_1_SEMI_PLANAR (1 << 6)
 #define REG_RPT_CNTRL           TDA_MKREG(0x00, 0xF0)  /* Pixel repetition */
 
+/* TDA19988-specific registers — Page 0x00 */
+#define REG_ENABLE_SPACE        TDA_MKREG(0x00, 0xD6)  /* Active space fill */
+
+/* Page 0x11: Audio / Encoder */
+#define REG_AIP_CNTRL_0         TDA_MKREG(0x11, 0x00)
+#define   AIP_CNTRL_0_RST_FIFO (1 << 0)
+#define REG_ENC_CNTRL           TDA_MKREG(0x11, 0x0D)
+#define   ENC_CNTRL_CTL_CODE(x) (((x) & 0x3) << 2)
+
+/* Page 0x12: HDCP / OTP */
+#define REG_TX33                TDA_MKREG(0x12, 0xB8)
+#define   TX33_HDMI             (1 << 1)
+
 /* ============================================================
  * HDMI core — Page 0x02 (PLL / Serializer / Analog)
  * Addresses verified against NXP BSL (tmbslTDA9989_local.h)
@@ -203,6 +219,7 @@
 #define REG_AUDIO_DIV           TDA_MKREG(0x02, 0x0E)  /* Audio clock divider */
 #define   AUDIO_DIV_SERCLK_8   0x03                    /* SERCLK / 8 */
 #define REG_SEL_CLK             TDA_MKREG(0x02, 0x11)
+#define   SEL_CLK_SEL_CLK1      (1 << 0)
 #define   SEL_CLK_SEL_VRF_CLK(x) (((x) & 0x3) << 1)
 #define   SEL_CLK_ENA_SC_CLK    (1 << 3)
 #define REG_ANA_GENERAL         TDA_MKREG(0x02, 0x12)

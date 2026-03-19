@@ -4,6 +4,9 @@
  * NXP TDA19988 HDMI Transmitter Driver
  * Target: BeagleBone Black (AM335x), 1280x720@60Hz
  * I2C interface via I2C0 at 0x44E0B000
+ *
+ * Init sequence ported from U-Boot tda19988 driver
+ * (Liviu Dudau, based on Linux/TI driver).
  * ============================================================ */
 
 #include "tda19988.h"
@@ -16,22 +19,31 @@
  * H: active=1280, FP=110, SW=40, BP=220, total=1650
  * V: active=720,  FP=5,   SW=5,  BP=20,  total=750
  * Pixel clock: 74.25 MHz (positive HS, positive VS)
- *
- * TDA19988 coordinate origin: start of HSYNC / start of VSYNC.
- * REFPIX = SW + BP = 260  (pixel where active video starts)
- * REFLINE = SW + BP = 25  (line where active video starts)
  * ============================================================ */
+/* Source: QNX drm_1280x720 struct (hdmi.c line 125-138) */
 #define T720P_HTOTAL        1650
 #define T720P_VTOTAL        750
 #define T720P_HACTIVE       1280
 #define T720P_VACTIVE       720
-#define T720P_HSW           40
-#define T720P_HBP           220
-#define T720P_VSW           5
-#define T720P_VBP           20
+#define T720P_HFP           110     /* hsync_start - hdisplay = 1390 - 1280 */
+#define T720P_HSW           40      /* hsync_end - hsync_start = 1430 - 1390 */
+#define T720P_HBP           220     /* htotal - hsync_end = 1650 - 1430 */
+#define T720P_VFP           5       /* vsync_start - vdisplay = 725 - 720 */
+#define T720P_VSW           5       /* vsync_end - vsync_start = 730 - 725 */
+#define T720P_VBP           20      /* vtotal - vsync_end = 750 - 730 */
+#define T720P_HSKEW         40      /* QNX: 0x28 */
 
-#define T720P_REFPIX        (T720P_HSW + T720P_HBP)        /* 260 */
-#define T720P_REFLINE       (T720P_VSW + T720P_VBP)        /* 25  */
+/* TDA timing values calculated using QNX formula (hdmi.c lines 469-505) */
+#define TDA_REF_PIX         (3 + T720P_HFP + T720P_HSKEW)              /* 153 */
+#define TDA_REF_LINE        (1 + T720P_VFP)                             /* 6   */
+#define TDA_DE_PIX_S        (T720P_HTOTAL - T720P_HACTIVE)             /* 370 */
+#define TDA_DE_PIX_E        (TDA_DE_PIX_S + T720P_HACTIVE)             /* 1650 */
+#define TDA_HS_PIX_S        T720P_HFP                                   /* 110 */
+#define TDA_HS_PIX_E        (T720P_HFP + T720P_HSW)                    /* 150 */
+#define TDA_VS1_LINE_S      T720P_VFP                                   /* 5   */
+#define TDA_VS1_LINE_E      (T720P_VFP + T720P_VSW)                    /* 10  */
+#define TDA_VWIN1_LINE_S    (T720P_VTOTAL - T720P_VACTIVE - 1)         /* 29  */
+#define TDA_VWIN1_LINE_E    (TDA_VWIN1_LINE_S + T720P_VACTIVE)         /* 749 */
 
 /* ============================================================
  * Internal state
@@ -42,9 +54,6 @@ static uint8_t g_current_page = 0xFF;   /* invalid sentinel */
  * Low-level I2C primitives
  * ============================================================ */
 
-/* Switch TDA HDMI core to the given register page.
- * Uses software cache to avoid redundant page switches —
- * matches U-Boot tda19988 driver behavior. */
 static void tda_set_page(uint8_t page)
 {
     if (page != g_current_page) {
@@ -54,35 +63,52 @@ static void tda_set_page(uint8_t page)
     }
 }
 
-/* Write one byte to a TDA HDMI core register (page:addr encoded) */
 static int tda_write(uint16_t reg, uint8_t val)
 {
     tda_set_page(TDA_PAGE(reg));
     return i2c_write_reg(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
 }
 
-/* Read one byte from a TDA HDMI core register */
 static int tda_read(uint16_t reg, uint8_t *val)
 {
     tda_set_page(TDA_PAGE(reg));
     return i2c_read_reg(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
 }
 
-/* Write one byte to TDA CEC core (no page mechanism) */
+/* Read-modify-write: set bits */
+static void tda_set(uint16_t reg, uint8_t bits)
+{
+    uint8_t val = 0;
+    tda_read(reg, &val);
+    val |= bits;
+    tda_write(reg, val);
+}
+
+/* Read-modify-write: clear bits */
+static void tda_clear(uint16_t reg, uint8_t bits)
+{
+    uint8_t val = 0;
+    tda_read(reg, &val);
+    val &= ~bits;
+    tda_write(reg, val);
+}
+
 static int tda_cec_write(uint8_t reg, uint8_t val)
 {
     return i2c_write_reg(TDA_CEC_I2C_ADDR, reg, val);
 }
 
-/* Spin-loop delay (calibrated for ~100ns per iteration at 500MHz) */
-static void tda_udelay(volatile uint32_t us)
+static void tda_mdelay(volatile uint32_t ms)
 {
-    /* ~500 iterations ≈ 1µs at Cortex-A8 500MHz; conservative factor */
-    volatile uint32_t count = us * 100;
+    /* Empirically calibrated from UART log timing:
+     * tda_mdelay(100) with 50000 multiplier took ~20-30 seconds real time.
+     * That means 1 iteration ≈ 4-6 µs → CPU effective rate ~200 KHz equiv.
+     * Using 200 iters/ms to get ~1ms actual wall time.
+     * This accounts for volatile access overhead on slow peripheral bus. */
+    volatile uint32_t count = ms * 200;
     while (count--);
 }
 
-/* Write 16-bit value to a pair of consecutive MSB/LSB registers */
 static void tda_write16(uint16_t reg_msb, uint16_t val16)
 {
     tda_write(reg_msb,     (uint8_t)((val16 >> 8) & 0xFF));
@@ -90,235 +116,225 @@ static void tda_write16(uint16_t reg_msb, uint16_t val16)
 }
 
 /* ============================================================
- * Init sequence steps
+ * Probe: CEC enable, soft reset, PLL, version
+ * Matches U-Boot tda19988_probe() order exactly.
  * ============================================================ */
 
-static void tda_cec_enable(void)
+static void tda_probe(void)
 {
-    /* Wake up CEC module and enable HDMI core.
-     * HDMI I2C slave needs time to initialize after CEC enable. */
+    uint16_t version;
+
+    /* Wake up device */
     tda_cec_write(TDA_CEC_ENAMODS, ENAMODS_RXSENS | ENAMODS_HDMI);
-    tda_udelay(50000);  /* 50ms settle for HDMI core I2C interface */
+    uart_printf("[TDA] CEC modules enabled\n");
+
+    /* Reset audio and I2C master (DDC). */
+    uart_printf("[TDA] soft reset: writing SOFTRESET...\n");
+    tda_write(REG_SOFTRESET, SOFTRESET_AUDIO | SOFTRESET_I2C);
+    uart_printf("[TDA] soft reset: delay 1...\n");
+    tda_mdelay(100);
+    uart_printf("[TDA] soft reset: clearing SOFTRESET...\n");
+    tda_write(REG_SOFTRESET, 0);
+    uart_printf("[TDA] soft reset: delay 2...\n");
+    tda_mdelay(100);
+    uart_printf("[TDA] soft reset: done\n");
+
+    /* Transmitter core reset — all production drivers (Linux, U-Boot, QNX) do this.
+     * Previous testing showed SCG registers (audio PLL) fail after SR, but those
+     * are audio-only. Video PLL (SERIAL_2, ANA_GENERAL) still works fine. */
+    tda_set(REG_MAIN_CNTRL0, MAIN_CNTRL0_SR);
+    tda_clear(REG_MAIN_CNTRL0, MAIN_CNTRL0_SR);
+
+    /* Invalidate page cache after reset */
+    g_current_page = 0xFF;
+
+    uart_printf("[TDA] HDMI core reset complete (soft + SR)\n");
+
+    /* Read version (page 0x00 — always accessible) */
+    version = 0;
+    {
+        uint8_t lo = 0, hi = 0;
+        tda_read(REG_VERSION, &lo);
+        tda_read(REG_VERSION_MSB, &hi);
+        version = ((uint16_t)hi << 8) | lo;
+    }
+    uart_printf("[TDA] Chip version: 0x%04x (expected 0x%04x)%s\n",
+                version, TDA19988_VERSION,
+                (version == TDA19988_VERSION) ? " OK" : " MISMATCH!");
+
+    /* Enable DDC */
+    tda_write(REG_DDC_DISABLE, 0x00);
+
+    /* Enable CEC clock — needed for internal state machine */
+    tda_write(REG_CCLK_ON, 0x01);
+
+    /* Disable multi-master on I2C */
+    tda_set(REG_I2C_MASTER, I2C_MASTER_DIS_MM);
+
+    /* Explicit power state: only SPDIF powered down, video path ON.
+     * Default after reset may have video bits powered down.
+     * Using direct write (not tda_set) to control ALL bits. */
+    tda_write(REG_FEAT_POWERDOWN, FEAT_POWERDOWN_SPDIF);
+
+    /* Default MUX register */
+    tda_write(REG_MUX_VP_VIP_OUT, 0x24);
+
+    /* FRO clock config */
+    tda_cec_write(TDA_CEC_FRO_IM_CLK_CTRL,
+                  FRO_IM_CLK_CTRL_GHOST_DIS | FRO_IM_CLK_CTRL_IMCLK_SEL);
+
+    uart_printf("[TDA] Probe complete (PLL deferred — needs pixel clock)\n");
 }
 
-static void tda_soft_reset(void)
+/* ============================================================
+ * Enable: video path configuration + output enable
+ * Matches U-Boot tda19988_enable() order exactly.
+ * ============================================================ */
+
+static void tda_enable_720p(void)
 {
-    uint8_t val = 0;
+    /* QNX init order:
+     * 1. encoder_dpms(): enable ports + VIP mux
+     * 2. encoder_mode_set(): mute audio, config timing, TBG, enable HDMI */
 
-    /* Phase 1: Reset I2C master (DDC) and audio interfaces.
-     * NXP BSL uses 50ms assert / 50ms de-assert. */
-    tda_read(REG_SOFTRESET, &val);
-    val |= SOFTRESET_I2C | SOFTRESET_AUDIO;
-    tda_write(REG_SOFTRESET, val);
-    tda_udelay(50000);  /* 50ms assert (NXP BSL requirement) */
+    uart_printf("[TDA] enable_720p: step 1 — enable ports + VIP mux (QNX dpms)\n");
 
-    val &= ~(SOFTRESET_I2C | SOFTRESET_AUDIO);
-    tda_write(REG_SOFTRESET, val);
-    tda_udelay(50000);  /* 50ms recovery */
+    /* QNX tda998x_encoder_dpms (hdmi.c line 443-453) */
+    tda_write(REG_ENA_AP, 0x03);    /* Audio ports (QNX enables these) */
+    tda_write(REG_ENA_VP_0, 0xFF);
+    tda_write(REG_ENA_VP_1, 0xFF);
+    tda_write(REG_ENA_VP_2, 0xFF);
+    /* VIP muxing for 16-bit RGB565 (QNX values) */
+    tda_write(REG_VIP_CNTRL_0, 0x23);  /* SWAP_A=2, SWAP_B=3 */
+    tda_write(REG_VIP_CNTRL_1, 0x01);  /* SWAP_C=0, SWAP_D=1 */
+    tda_write(REG_VIP_CNTRL_2, 0x45);  /* SWAP_E=4, SWAP_F=5 */
 
-    /* Phase 2: Main core soft reset via MAIN_CNTRL0.
-     * Uses read-modify-write to match U-Boot exactly. */
+    uart_printf("[TDA] enable_720p: step 2 — mode set start\n");
+
+    /* QNX tda998x_encoder_mode_set (hdmi.c line 514-608) */
+    /* Mute audio FIFO */
+    tda_set(REG_AIP_CNTRL_0, AIP_CNTRL_0_RST_FIFO);
+
+    /* Disable HDMI during config */
+    tda_set(REG_TBG_CNTRL_1, TBG_CNTRL_1_DWIN_DIS);
+    tda_clear(REG_TX33, TX33_HDMI);
+    tda_write(REG_ENC_CNTRL, ENC_CNTRL_CTL_CODE(0));
+
+    uart_printf("[TDA] enable_720p: step 3 — video path config\n");
+
+    /* No pre-filter or interpolator */
+    tda_write(REG_HVF_CNTRL_0, HVF_CNTRL_0_PREFIL(0) | HVF_CNTRL_0_INTPOL(0));
+
+    /* Power: only SPDIF + pre-filter + CSC off. Direct write — NOT tda_set(),
+     * because default after reset may have video output powered down. */
+    tda_write(REG_FEAT_POWERDOWN,
+              FEAT_POWERDOWN_SPDIF | FEAT_POWERDOWN_PREFILT | FEAT_POWERDOWN_CSC);
+
+    tda_write(REG_VIP_CNTRL_5, VIP_CNTRL_5_SP_CNT(0));
+    tda_write(REG_VIP_CNTRL_4, VIP_CNTRL_4_BLANKIT(0) | VIP_CNTRL_4_BLC(0));
+
+    uart_printf("[TDA] enable_720p: step 3 — PLL + serializer config (page 0x02)\n");
+
+    /* Serializer PLL: direct writes, no read-modify-write.
+     * PLL_SERIAL_2 is confirmed writable. SEL_CLK bit 0 may not stick
+     * but we write it anyway — serializer may work with just ENA_SC_CLK. */
+    tda_write(REG_PLL_SERIAL_1, 0x00);
+    tda_write(REG_PLL_SERIAL_3, 0x00);
+    tda_write(REG_SERIALIZER, 0);
+    tda_write(REG_HVF_CNTRL_1, HVF_CNTRL_1_VQR(0));
+    tda_write(REG_RPT_CNTRL, 0);
+    tda_write(REG_SEL_CLK, SEL_CLK_SEL_VRF_CLK(0) |
+              SEL_CLK_SEL_CLK1 | SEL_CLK_ENA_SC_CLK);
+    tda_write(REG_PLL_SERIAL_2, PLL_SERIAL_2_SRL_NOSC(1) |
+              PLL_SERIAL_2_SRL_PR(0));
+
+    /* Color matrix: bypass */
+    tda_write(REG_MAT_CONTRL, MAT_CONTRL_MAT_BP | MAT_CONTRL_MAT_SC(1));
+
+    /* Analog output — critical for TMDS signal generation */
+    tda_write(REG_ANA_GENERAL, 0x09);
+
+    /* Verify SEL_CLK and ANA_GENERAL */
     {
-        uint8_t mc0 = 0;
-        tda_read(REG_MAIN_CNTRL0, &mc0);
-        mc0 |= MAIN_CNTRL0_SR;
-        tda_write(REG_MAIN_CNTRL0, mc0);
-        mc0 &= ~MAIN_CNTRL0_SR;
-        tda_write(REG_MAIN_CNTRL0, mc0);
+        uint8_t sc = 0, ag = 0;
+        tda_read(REG_SEL_CLK, &sc);
+        tda_read(REG_ANA_GENERAL, &ag);
+        uart_printf("[TDA]   SEL_CLK=0x%02x ANA_GENERAL=0x%02x\n", sc, ag);
     }
 
-    /* Invalidate page cache after reset — chip may reset internal page */
-    g_current_page = 0xFF;
-}
+    uart_printf("[TDA] enable_720p: step 4 — analog + color config\n");
 
-static uint16_t tda_read_version(void)
-{
-    uint8_t lo = 0, hi = 0;
-    tda_read(REG_VERSION,     &lo);
-    tda_read(REG_VERSION_MSB, &hi);
-    return (uint16_t)(((uint16_t)hi << 8) | lo);
-}
+    uart_printf("[TDA] enable_720p: step 5 — timing registers (QNX formula)\n");
 
-static void tda_powerup(void)
-{
-    /* Enable all sub-modules */
-    tda_write(REG_DDC_DISABLE,    0x00);  /* Enable DDC interface (Linux driver requirement) */
-    tda_write(REG_CCLK_ON,        0x01);  /* CEC clock on */
-    tda_write(REG_I2C_MASTER,     I2C_MASTER_DIS_MM | I2C_MASTER_DIS_FILT);
-    tda_write(REG_FEAT_POWERDOWN, FEAT_POWERDOWN_SPDIF);  /* SPDIF off, video on */
-}
+    /* All timing values calculated from QNX hdmi.c tda998x_encoder_mode_set()
+     * using drm_1280x720 struct. See defines at top of file. */
 
-static void tda_enable_video_ports(void)
-{
-    /* BBB uses 16-bit LCD interface: only VP0 and VP1 connected.
-     * VP2 (upper 8 bits) tied to GND on board — disable it. */
-    tda_write(REG_ENA_VP_0, 0xFF);  /* VPA[7:0] = lcd_data[7:0] */
-    tda_write(REG_ENA_VP_1, 0xFF);  /* VPB[7:0] = lcd_data[15:8] */
-    tda_write(REG_ENA_VP_2, 0x00);  /* VPC not connected on BBB */
-    tda_write(REG_ENA_AP,   0x00);  /* Audio ports off */
-}
+    tda_write(REG_VIDFORMAT, 0x00);
 
-static void tda_config_video_input(void)
-{
-    /*
-     * 16-bit RGB565 external synchronization (rising edge)
-     *
-     * BBB hardware: lcd_data[15:0] → TDA19988 VP[15:0]
-     *   VP0 (VPA[7:0]) = lcd_data[7:0]  = {G[2:0], B[4:0]}
-     *   VP1 (VPB[7:0]) = lcd_data[15:8] = {R[4:0], G[5:3]}
-     *   VP2 (VPC[7:0]) = GND (not connected)
-     *
-     * SWAP fields select VP nibbles (4-bit each) for internal routing:
-     *   SWAP_A/B in VIP_CNTRL_0, SWAP_C/D in VIP_CNTRL_1
-     *   Nibble index: 0=VP[3:0], 1=VP[7:4], 2=VP[11:8], 3=VP[15:12]
-     *
-     * Route VP[15:0] to internal bus positions [15:0] (identity):
-     *   SWAP_A=3 (VP[15:12]), SWAP_B=2 (VP[11:8])  → upper byte
-     *   SWAP_C=1 (VP[7:4]),   SWAP_D=0 (VP[3:0])   → lower byte
-     */
-    tda_write(REG_VIP_CNTRL_0, 0x23);  /* SWAP_A=3, SWAP_B=2 */
-    tda_write(REG_VIP_CNTRL_1, 0x01);  /* SWAP_C=1, SWAP_D=0 */
-    tda_write(REG_VIP_CNTRL_2, 0x01);  /* DE enabled from external pin */
-    tda_write(REG_VIP_CNTRL_3, 0x00);  /* Rising edge, external sync */
-    tda_write(REG_VIP_CNTRL_4, VIP_CNTRL_4_BLC(0) | VIP_CNTRL_4_BLANKIT(0));
-    tda_write(REG_VIP_CNTRL_5, 0x00);
+    tda_write16(REG_REFPIX_MSB,  TDA_REF_PIX);                   /* 153  */
+    tda_write16(REG_REFLINE_MSB, TDA_REF_LINE);                  /* 6    */
 
-    /* Route VP output to HDMI encoder unchanged (no pixel remap) */
-    tda_write(REG_MUX_VP_VIP_OUT, 0x24);
-}
+    tda_write16(REG_NPIX_MSB,  T720P_HTOTAL);                    /* 1650 */
+    tda_write16(REG_NLINE_MSB, T720P_VTOTAL);                    /* 750  */
 
-static void tda_config_color_matrix(void)
-{
-    /* Bypass color matrix: input RGB passes through unchanged to output RGB */
-    tda_write(REG_MAT_CONTRL, MAT_CONTRL_MAT_BP | MAT_CONTRL_MAT_SC(3));
-}
+    /* VSYNC (progressive) */
+    tda_write16(REG_VS_LINE_STRT_1_MSB, TDA_VS1_LINE_S);         /* 5   */
+    tda_write16(REG_VS_PIX_STRT_1_MSB,  TDA_HS_PIX_S);           /* 110 */
+    tda_write16(REG_VS_LINE_END_1_MSB,  TDA_VS1_LINE_E);         /* 10  */
+    tda_write16(REG_VS_PIX_END_1_MSB,   TDA_HS_PIX_S);           /* 110 */
 
-static void tda_config_720p_timing(void)
-{
-    /*
-     * 720p@60Hz CEA timing parameters.
-     * All pixel/line coordinates are relative to HSYNC/VSYNC start
-     * (origin = blanking boundary, not active video start).
-     *
-     * HS occupies pixels [HBP : HBP+HSW] = [220 : 260] from pixel 0 of active
-     * which in blanking-relative coords = pixels [0 : HSW] = [0 : 40].
-     * But TDA counts from the start of the full line:
-     *   hs_pix_strt = HTOTAL - (HSW+HBP) = HTOTAL - REFPIX = 1650-260 = 1390
-     * ... or equivalently the complement:
-     *   hs_pix_strt = HBP (= 220 from active start, wrapping = REFPIX - HSW = 220)
-     *   hs_pix_stop = REFPIX (= 260)
-     * (consistent with the Linux tda998x driver computation)
-     */
-
-    /* Disable output during timing setup to prevent garbage */
-    tda_write(REG_TBG_CNTRL_0, TBG_CNTRL_0_FRAME_DIS | TBG_CNTRL_0_SYNC_ONCE);
-
-    tda_write(REG_VIDFORMAT, 0x00);   /* Progressive, no repetition */
-
-    /* Reference point: start of active video */
-    tda_write16(REG_REFPIX_MSB,  T720P_REFPIX);    /* 260 */
-    tda_write16(REG_REFLINE_MSB, T720P_REFLINE);   /* 25  */
-
-    /* Total dimensions */
-    tda_write16(REG_NPIX_MSB,  T720P_HTOTAL);      /* 1650 */
-    tda_write16(REG_NLINE_MSB, T720P_VTOTAL);      /* 750  */
-
-    /*
-     * VSYNC timing (field 1 for progressive = entire frame)
-     * VS starts at line 0, pixel REFPIX (= 260)
-     * VS ends  at line VSW (= 5), pixel REFPIX (= 260)
-     */
-    tda_write16(REG_VS_LINE_STRT_1_MSB, 0);
-    tda_write16(REG_VS_PIX_STRT_1_MSB,  T720P_REFPIX);
-    tda_write16(REG_VS_LINE_END_1_MSB,  T720P_VSW);
-    tda_write16(REG_VS_PIX_END_1_MSB,   T720P_REFPIX);
-
-    /* Progressive: field 2 = unused (all zeros) */
+    /* Progressive: field 2 unused */
     tda_write16(REG_VS_LINE_STRT_2_MSB, 0);
     tda_write16(REG_VS_PIX_STRT_2_MSB,  0);
     tda_write16(REG_VS_LINE_END_2_MSB,  0);
     tda_write16(REG_VS_PIX_END_2_MSB,   0);
 
-    /*
-     * HSYNC timing
-     * hs_pix_strt = HBP = REFPIX - HSW = 220
-     * hs_pix_stop = REFPIX = HSW + HBP = 260
-     */
-    tda_write16(REG_HS_PIX_START_MSB, T720P_HBP);          /* 220 */
-    tda_write16(REG_HS_PIX_STOP_MSB,  T720P_REFPIX);       /* 260 */
+    /* HSYNC */
+    tda_write16(REG_HS_PIX_START_MSB, TDA_HS_PIX_S);             /* 110 */
+    tda_write16(REG_HS_PIX_STOP_MSB,  TDA_HS_PIX_E);             /* 150 */
 
-    /*
-     * Active video window
-     * vwin starts at REFLINE (= 25), ends at REFLINE + Vactive (= 745)
-     */
-    tda_write16(REG_VWIN_START_1_MSB, T720P_REFLINE);                  /* 25  */
-    tda_write16(REG_VWIN_END_1_MSB,   T720P_REFLINE + T720P_VACTIVE);  /* 745 */
+    /* VWIN: active video window (QNX formula: vtotal - vactive - 1) */
+    tda_write16(REG_VWIN_START_1_MSB, TDA_VWIN1_LINE_S);         /* 29  */
+    tda_write16(REG_VWIN_END_1_MSB,   TDA_VWIN1_LINE_E);         /* 749 */
     tda_write16(REG_VWIN_START_2_MSB, 0);
     tda_write16(REG_VWIN_END_2_MSB,   0);
 
-    /*
-     * Data Enable (DE) window
-     * de_start = REFPIX = 260  (where active pixels begin)
-     * de_stop  = REFPIX + Hactive = 1540
-     */
-    tda_write16(REG_DE_START_MSB, T720P_REFPIX);                       /* 260  */
-    tda_write16(REG_DE_STOP_MSB,  T720P_REFPIX + T720P_HACTIVE);       /* 1540 */
+    /* DE: data enable (QNX formula: htotal - hactive to htotal) */
+    tda_write16(REG_DE_START_MSB, TDA_DE_PIX_S);                 /* 370  */
+    tda_write16(REG_DE_STOP_MSB,  TDA_DE_PIX_E);                 /* 1650 */
+
+    /* TDA19988: enable active space fill (QNX uses 0x01, we used 0x00) */
+    tda_write(REG_ENABLE_SPACE, 0x01);
 
     /*
-     * Timing Bus Generator:
-     * TBG_CNTRL_1: use LCDC external signals for PCLK, HSYNC, VSYNC.
-     *   All three EXT bits must be set — without H_EXT/V_EXT the TDA
-     *   generates internal sync that mismatches LCDC output.
-     *   TGL_EN enables H_TGL/V_TGL polarity control from VIP_CNTRL_3.
-     *   720p HSYNC/VSYNC are active-high → no toggle bits needed.
-     * TBG_CNTRL_0: enable after all timing is written.
+     * TBG_CNTRL_1: QNX uses ONLY TGL_EN — NO X_EXT/H_EXT/V_EXT.
+     * 720p has positive HSYNC/VSYNC → no H_TGL/V_TGL needed.
+     * TBG_CNTRL_0: clear SYNC_MTHD first, then clear SYNC_ONCE last.
      */
-    tda_write(REG_TBG_CNTRL_1,
-              TBG_CNTRL_1_TGL_EN |
-              TBG_CNTRL_1_X_EXT |
-              TBG_CNTRL_1_H_EXT |
-              TBG_CNTRL_1_V_EXT);   /* 0x3C */
-    tda_write(REG_TBG_CNTRL_0, 0x00);                  /* Enable output */
-}
+    tda_clear(REG_TBG_CNTRL_0, TBG_CNTRL_0_SYNC_MTHD);
 
-static void tda_config_pll(void)
-{
-    /*
-     * PLL configuration for 720p@60Hz.
-     * Register order matches U-Boot tda19988_probe() exactly.
-     * Must be called immediately after soft reset, before any
-     * video port / timing configuration touches page 0x00.
-     */
+    /* VIP_CNTRL_3: sync on HSYNC, 720p positive sync → no toggle.
+     * QNX: write 0 first, then set SYNC_HS. */
+    tda_write(REG_VIP_CNTRL_3, 0);
+    tda_set(REG_VIP_CNTRL_3, VIP_CNTRL_3_SYNC_HS);
 
-    /* Common PLL config */
-    tda_write(REG_PLL_SERIAL_1, 0x00);
-    tda_write(REG_PLL_SERIAL_2, PLL_SERIAL_2_SRL_NOSC(1));  /* 0x01 */
-    tda_write(REG_PLL_SERIAL_3, 0x00);
-    tda_write(REG_SERIALIZER,   0x00);
-    tda_write(REG_BUFFER_OUT,   0x00);
-    tda_write(REG_PLL_SCG1,     0x00);
-    tda_write(REG_AUDIO_DIV,    AUDIO_DIV_SERCLK_8);        /* 0x03 */
-    tda_write(REG_SEL_CLK,      0x09);  /* ENA_SC_CLK + SEL_CLK1 */
+    /* TBG: only TGL_EN, no external sync bits (QNX line 571) */
+    tda_write(REG_TBG_CNTRL_1, TBG_CNTRL_1_TGL_EN);
 
-    /* Format-specific dividers (720p non-interlaced) */
-    tda_write(REG_PLL_SCGN1, 0xFA);
-    tda_write(REG_PLL_SCGN2, 0x00);
-    tda_write(REG_PLL_SCGR1, 0x5B);
-    tda_write(REG_PLL_SCGR2, 0x00);
-    tda_write(REG_PLL_SCG2,  0x10);    /* selpllclkin=1, bypass=0 */
+    /* Enable HDMI + encoder */
+    tda_clear(REG_TBG_CNTRL_1, TBG_CNTRL_1_DWIN_DIS);
+    tda_write(REG_ENC_CNTRL, ENC_CNTRL_CTL_CODE(1));
 
-    /* Analog output enable */
-    tda_write(REG_ANA_GENERAL, 0x09);
-}
+    /* MUST BE LAST register set (QNX line 607) */
+    tda_clear(REG_TBG_CNTRL_0, TBG_CNTRL_0_SYNC_ONCE);
 
-static void tda_config_output(void)
-{
-    /* HVF (horizontal/vertical filter) — bypass for progressive output */
-    tda_write(REG_HVF_CNTRL_0, HVF_CNTRL_0_INTPOL(0) | HVF_CNTRL_0_PREFIL(0));
-    tda_write(REG_HVF_CNTRL_1, HVF_CNTRL_1_VQR(0));
+    uart_printf("[TDA] enable_720p: step 6 — TBG + timing done\n");
+    uart_printf("[TDA] Timing: REFPIX=%d REFLINE=%d DE=%d-%d VWIN=%d-%d\n",
+                TDA_REF_PIX, TDA_REF_LINE,
+                TDA_DE_PIX_S, TDA_DE_PIX_E,
+                TDA_VWIN1_LINE_S, TDA_VWIN1_LINE_E);
 
-    /* No pixel repetition for 720p */
-    tda_write(REG_RPT_CNTRL, 0x00);
+    uart_printf("[TDA] enable_720p: done\n");
 }
 
 /* ============================================================
@@ -327,177 +343,73 @@ static void tda_config_output(void)
 
 void tda19988_init(void)
 {
-    uint16_t version;
-
     uart_printf("[TDA] Initializing TDA19988 HDMI transmitter\n");
-
-    /* ---- Phase 1: Wake up & Reset (matches U-Boot tda19988_probe) ---- */
-
-    /* CEC enable — no FRO here, U-Boot does FRO last */
-    tda_cec_write(TDA_CEC_ENAMODS, ENAMODS_RXSENS | ENAMODS_HDMI);
-    uart_printf("[TDA] CEC modules enabled\n");
-
-    /* Soft reset: I2C master + audio (50ms assert / 50ms recover) */
-    tda_soft_reset();
-    uart_printf("[TDA] HDMI core reset complete\n");
-
-    /* ---- Phase 2: PLL config IMMEDIATELY after reset (U-Boot order) ---- */
-    tda_config_pll();
-
-    /* MUX default (U-Boot writes this right after PLL) */
-    tda_write(REG_MUX_VP_VIP_OUT, 0x24);
-
-    /* Version check */
-    version = tda_read_version();
-    uart_printf("[TDA] Chip version: 0x%04x (expected 0x%04x)\n",
-                version, TDA19988_VERSION);
-
-    /* DDC enable + clock (U-Boot: after version, before FRO) */
-    tda_write(REG_DDC_DISABLE, 0x00);
-
-    /* FRO clock — U-Boot does this AFTER PLL and DDC */
-    tda_cec_write(TDA_CEC_FRO_IM_CLK_CTRL,
-                  FRO_IM_CLK_CTRL_GHOST_DIS | FRO_IM_CLK_CTRL_IMCLK_SEL);
-
-    /* ---- Phase 3: Video path config ---- */
-    tda_powerup();
-    tda_enable_video_ports();
-    tda_config_video_input();
-    tda_config_color_matrix();
-    tda_config_720p_timing();
-    tda_config_output();
-
-    /* ---- Diagnostic: PLL readback ---- */
-    {
-        uint8_t v = 0;
-
-        uart_printf("[TDA] Page 0x02 readback:\n");
-        tda_read(REG_PLL_SERIAL_2, &v);
-        uart_printf("  PLL_SERIAL_2 (02:01) = 0x%02x (expect 0x01)\n", v);
-        tda_read(REG_PLL_SCG2, &v);
-        uart_printf("  PLL_SCG2     (02:06) = 0x%02x (expect 0x10)\n", v);
-        tda_read(REG_PLL_SCGN1, &v);
-        uart_printf("  PLL_SCGN1    (02:07) = 0x%02x (expect 0xFA)\n", v);
-        tda_read(REG_PLL_SCGR1, &v);
-        uart_printf("  PLL_SCGR1    (02:09) = 0x%02x (expect 0x5B)\n", v);
-        tda_read(REG_SEL_CLK, &v);
-        uart_printf("  SEL_CLK      (02:11) = 0x%02x (expect 0x09)\n", v);
-        tda_read(REG_ANA_GENERAL, &v);
-        uart_printf("  ANA_GENERAL  (02:12) = 0x%02x (expect 0x09)\n", v);
-    }
-
-    uart_printf("[TDA] TDA19988 configured for 1280x720@60Hz RGB\n");
+    tda_probe();
+    uart_printf("[TDA] TDA19988 probe complete\n");
 }
 
 void tda19988_post_lcdc_init(void)
 {
     uint8_t v = 0;
-    int pll_ok = 1;
 
-    uart_printf("[TDA] Post-LCDC diagnostic (pixel clock now active)\n");
+    uart_printf("[TDA] Post-LCDC: pixel clock now active, configuring PLL...\n");
 
-    /* 1. Check HPD and RXSENS — cable/sink detection */
-    if (i2c_read_reg(TDA_CEC_I2C_ADDR, TDA_CEC_RXSHPDLEV, &v) == 0) {
-        uart_printf("[TDA] RXSHPDLEV=0x%02x  HPD=%d  RXSENS=%d\n",
-                    v, v & RXSHPDLEV_HPD, (v >> 1) & 1);
-        if (!(v & RXSHPDLEV_HPD))
-            uart_printf("[TDA] WARNING: HPD not asserted — check HDMI cable\n");
-    } else {
-        uart_printf("[TDA] ERROR: Cannot read CEC RXSHPDLEV\n");
-    }
-
-    /* 2. Re-read PLL registers now that LCDC pixel clock is running */
-    uart_printf("[TDA] PLL readback (with pixel clock):\n");
-    tda_read(REG_PLL_SCG2, &v);
-    uart_printf("  PLL_SCG2  = 0x%02x (expect 0x10)\n", v);
-    if (v != 0x10) pll_ok = 0;
-
-    tda_read(REG_PLL_SCGN1, &v);
-    uart_printf("  PLL_SCGN1 = 0x%02x (expect 0xFA)\n", v);
-    if (v != 0xFA) pll_ok = 0;
-
-    tda_read(REG_PLL_SCGR1, &v);
-    uart_printf("  PLL_SCGR1 = 0x%02x (expect 0x5B)\n", v);
-    if (v != 0x5B) pll_ok = 0;
-
-    tda_read(REG_SEL_CLK, &v);
-    uart_printf("  SEL_CLK   = 0x%02x (expect 0x09)\n", v);
-
-    /* 3. If PLL registers still 0, pixel clock is now present — re-write */
-    if (!pll_ok) {
-        uart_printf("[TDA] PLL registers not latched — re-writing with pixel clock active\n");
-
-        /* Force page cache invalidation before retry */
-        g_current_page = 0xFF;
-
-        tda_write(REG_PLL_SERIAL_1, 0x00);
-        tda_write(REG_PLL_SERIAL_2, PLL_SERIAL_2_SRL_NOSC(1));
-        tda_write(REG_PLL_SERIAL_3, 0x00);
-        tda_write(REG_SERIALIZER,   0x00);
-        tda_write(REG_BUFFER_OUT,   0x00);
-        tda_write(REG_PLL_SCG1,     0x00);
-        tda_write(REG_AUDIO_DIV,    AUDIO_DIV_SERCLK_8);
-        tda_write(REG_SEL_CLK,      0x09);
-        tda_write(REG_PLL_SCGN1, 0xFA);
-        tda_write(REG_PLL_SCGN2, 0x00);
-        tda_write(REG_PLL_SCGR1, 0x5B);
-        tda_write(REG_PLL_SCGR2, 0x00);
-        tda_write(REG_PLL_SCG2,  0x10);
-        tda_write(REG_ANA_GENERAL, 0x09);
-
-        /* Small delay for PLL to lock */
-        tda_udelay(100000);
-
-        /* Verify retry */
-        tda_read(REG_PLL_SCG2, &v);
-        uart_printf("  PLL_SCG2 after retry = 0x%02x\n", v);
-        tda_read(REG_PLL_SCGN1, &v);
-        uart_printf("  PLL_SCGN1 after retry = 0x%02x\n", v);
-        tda_read(REG_PLL_SCGR1, &v);
-        uart_printf("  PLL_SCGR1 after retry = 0x%02x\n", v);
-        tda_read(REG_SEL_CLK, &v);
-        uart_printf("  SEL_CLK after retry = 0x%02x\n", v);
-    } else {
-        uart_printf("[TDA] PLL registers OK — PLL should be locked\n");
-    }
-
-    /* 4. Page switch verification test.
-     * Read addr 0x00 on page 0x00 (VERSION) vs page 0x02 (PLL_SERIAL_1).
-     * If both return the same value, page switch is broken. */
-    {
-        uint8_t val_p0 = 0, val_p2 = 0;
-
-        /* Force explicit page switch via raw I2C (bypass cache) */
-        g_current_page = 0xFF;
-        i2c_write_reg(TDA_HDMI_I2C_ADDR, TDA_CURPAGE_ADDR, 0x00);
-        g_current_page = 0x00;
-        i2c_read_reg(TDA_HDMI_I2C_ADDR, 0x00, &val_p0);
-
-        g_current_page = 0xFF;
-        i2c_write_reg(TDA_HDMI_I2C_ADDR, TDA_CURPAGE_ADDR, 0x02);
-        g_current_page = 0x02;
-        i2c_read_reg(TDA_HDMI_I2C_ADDR, 0x00, &val_p2);
-
-        uart_printf("[TDA] Page switch test:\n");
-        uart_printf("  Page0x00:addr0x00 = 0x%02x (expect VERSION ~0x31)\n", val_p0);
-        uart_printf("  Page0x02:addr0x00 = 0x%02x (expect PLL_SERIAL_1, diff from above)\n", val_p2);
-
-        if (val_p0 == val_p2)
-            uart_printf("[TDA] WARNING: same value — page switch may be broken!\n");
-        else
-            uart_printf("[TDA] Page switch OK — different values on different pages\n");
-
-        /* Also try write-read test on page 0x02:
-         * Write 0xAA to PLL_SERIAL_1 (addr 0x00), read back */
-        i2c_write_reg(TDA_HDMI_I2C_ADDR, 0x00, 0xAA);
-        i2c_read_reg(TDA_HDMI_I2C_ADDR, 0x00, &v);
-        uart_printf("  Write 0xAA to page02:addr00, readback = 0x%02x\n", v);
-
-        /* Restore PLL_SERIAL_1 to correct value */
-        i2c_write_reg(TDA_HDMI_I2C_ADDR, 0x00, 0x00);
-    }
-
-    /* 5. Re-enable TBG output */
+    /* === Step 1: Verify page 0x02 is now accessible (pixel clock present) === */
     g_current_page = 0xFF;
-    tda_write(REG_TBG_CNTRL_0, 0x00);
+    tda_write(REG_PLL_SCG2, 0x10);
+    tda_read(REG_PLL_SCG2, &v);
+    uart_printf("[TDA] Page 0x02 test: wrote 0x10, read 0x%02x%s\n",
+                v, (v == 0x10) ? " OK" : " FAIL");
+
+    if (v != 0x10) {
+        uart_printf("[TDA] ERROR: Page 0x02 still locked even with pixel clock!\n");
+        uart_printf("[TDA] Continuing anyway — output may not work.\n");
+    }
+
+    /* === Step 2: Write PLL configuration (page 0x02) === */
+    uart_printf("[TDA] Writing PLL registers...\n");
+    tda_write(REG_PLL_SERIAL_1, 0x00);
+    tda_write(REG_PLL_SERIAL_2, PLL_SERIAL_2_SRL_NOSC(1));
+    tda_write(REG_PLL_SERIAL_3, 0x00);
+    tda_write(REG_SERIALIZER,   0x00);
+    tda_write(REG_BUFFER_OUT,   0x00);
+    tda_write(REG_PLL_SCG1,     0x00);
+    tda_write(REG_AUDIO_DIV,    AUDIO_DIV_SERCLK_8);
+    tda_write(REG_SEL_CLK,      SEL_CLK_SEL_CLK1 | SEL_CLK_ENA_SC_CLK);
+    tda_write(REG_PLL_SCGN1, 0xFA);
+    tda_write(REG_PLL_SCGN2, 0x00);
+    tda_write(REG_PLL_SCGR1, 0x5B);
+    tda_write(REG_PLL_SCGR2, 0x00);
+    tda_write(REG_PLL_SCG2,  0x10);
+
+    /* Verify PLL writes */
+    tda_read(REG_PLL_SCGN1, &v);
+    uart_printf("[TDA] PLL verify: SCGN1=0x%02x (expect 0xFA) SEL_CLK=", v);
+    tda_read(REG_SEL_CLK, &v);
+    uart_printf("0x%02x (expect 0x09)\n", v);
+
+    /* === Step 3: HPD check === */
+    if (i2c_read_reg(TDA_CEC_I2C_ADDR, TDA_CEC_RXSHPDLEV, &v) == 0) {
+        uart_printf("[TDA] HPD=%d  RXSENS=%d\n", v & 1, (v >> 1) & 1);
+    }
+
+    /* === Step 4: Full video path enable === */
+    tda_enable_720p();
+    uart_printf("[TDA] Video output enabled (1280x720@60Hz)\n");
+
+    /* === Step 5: Post-enable diagnostic === */
+    {
+        uint8_t v0 = 0, v1 = 0;
+        tda_read(REG_PLL_SERIAL_2, &v0);
+        tda_read(REG_SEL_CLK, &v1);
+        uart_printf("[TDA] PLL final: SERIAL_2=0x%02x  SEL_CLK=0x%02x\n", v0, v1);
+
+        tda_read(REG_PLL_SCGN1, &v0);
+        tda_read(REG_PLL_SCG2, &v1);
+        uart_printf("[TDA] PLL final: SCGN1=0x%02x  SCG2=0x%02x\n", v0, v1);
+
+        if (i2c_read_reg(TDA_CEC_I2C_ADDR, TDA_CEC_RXSHPDLEV, &v0) == 0) {
+            uart_printf("[TDA] Final: HPD=%d  RXSENS=%d\n", v0 & 1, (v0 >> 1) & 1);
+        }
+    }
 }

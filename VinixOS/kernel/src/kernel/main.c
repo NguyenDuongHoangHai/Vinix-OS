@@ -55,24 +55,43 @@ void kernel_main(void)
      * We are now running at VA 0xC0xxxxxx. */
     mmu_init();
 
-    /* Graphics subsystem: I2C → TDA19988 → LCDC
-     * TDA19988 PLL must be configured BEFORE LCDC outputs pixel clock.
-     * If pixel clock is present, TDA PLL auto-locks and divider
-     * registers become hardware-locked (read-only). */
+    /* Graphics subsystem: I2C → TDA19988 (CEC/reset only) → LCDC → TDA19988 (PLL + video)
+     *
+     * Hardware finding: TDA19988 PLL registers on page 0x02 are NOT writable
+     * until LCDC pixel clock is present on the VP_CLK input pin.
+     * Without pixel clock, writes to page 0x02 are silently ignored (readback = 0x00).
+     * So: start LCDC first (generates 74.25MHz pixel clock), THEN configure TDA PLL. */
     i2c_init();
-    i2c_scan();     /* Diagnostic: print devices found on I2C0 */
-    tda19988_init();
-    lcdc_init();
-    tda19988_post_lcdc_init();  /* PLL retry + HPD check with pixel clock active */
+    i2c_scan();
+    tda19988_init();            /* CEC enable + soft reset + version check (no PLL) */
+    lcdc_init();                /* Start pixel clock — TDA19988 PLL registers now writable */
+    tda19988_post_lcdc_init();  /* PLL config + video path + HPD check */
 
-    /* Test: fill framebuffer with solid red to verify HDMI output.
-     * 16bpp RGB565: R=0xF800, G=0x07E0, B=0x001F.
-     * Palette header (32 bytes) precedes pixel data. */
+    /* Test: fill entire framebuffer with WHITE to verify pixel data output.
+     * If screen stays black → DE/VWIN window mismatch or DMA issue.
+     * If screen turns white → pixel path works, can then add color bands. */
     {
-        uint16_t *fb = (uint16_t *)(0x80800000 + 32);  /* skip palette */
-        for (int i = 0; i < 1280 * 720; i++)
-            fb[i] = 0xF800;  /* RGB565: pure red */
-        uart_printf("[FB] Framebuffer filled with solid red (1280x720, RGB565)\n");
+        uint16_t *fb = lcdc_get_framebuffer();
+        uint32_t w = lcdc_get_width();
+        uint32_t h = lcdc_get_height();
+
+        /* Fill all white first */
+        for (uint32_t i = 0; i < w * h; i++) {
+            fb[i] = 0xFFFF;  /* White in RGB565 */
+        }
+
+        /* Readback verify: check first and last pixel */
+        uart_printf("[FB] All white fill: first=0x%04x last=0x%04x (expect 0xFFFF)\n",
+                    fb[0], fb[w * h - 1]);
+
+        /* Also verify palette header is still intact */
+        volatile uint32_t *palette = (volatile uint32_t *)(fb) - (32/4);
+        uart_printf("[FB] Palette word0=0x%08x (expect 0x4000 for raw data)\n",
+                    palette[0]);
+
+        uart_printf("[FB] Framebuffer filled ALL WHITE, %dx%d RGB565\n", w, h);
+        uart_printf("[FB]   If screen white → pixel path OK\n");
+        uart_printf("[FB]   If screen black → DE/VWIN window mismatch\n");
     }
 
     intc_init();

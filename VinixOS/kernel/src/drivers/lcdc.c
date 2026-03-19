@@ -33,25 +33,30 @@
 #define CONF_LCD_HSYNC          (CTRL_MOD_BASE + 0x8E4)
 #define CONF_LCD_PCLK           (CTRL_MOD_BASE + 0x8E8)
 #define CONF_LCD_AC_BIAS_EN     (CTRL_MOD_BASE + 0x8EC)  /* DE signal */
-/* Pad config: mode 0, pull disabled (bit 3), RX active (bit 5), fast slew.
- * RXACTIVE matches TI StarterWare — LCDC module reads pin state for
- * internal synchronization even on output pins. */
-#define LCD_PAD_MODE0_OUT       0x28
+
+/* GPMC_AD pins for lcd_data[16:23] — 24-bit mode */
+#define CONF_GPMC_AD8           (CTRL_MOD_BASE + 0x820)
+
+/* Pad config matching TI StarterWare: RXACTIVE for LCDC feedback */
+#define LCD_PAD_MODE0           0x28    /* mode 0, pull disabled, RX active */
+#define LCD_PAD_MODE1           0x21    /* mode 1, pull enabled, RX active */
 
 static void lcd_pinmux_setup(void)
 {
-    /* lcd_data0..lcd_data15: offsets 0x8A0, 0x8A4, ..., 0x8DC */
+    /* lcd_data[0:15]: dedicated LCD pins, mode 0.
+     * BBB SRM 6.6.3: only 16 data bits wired to TDA19988.
+     * GPMC_AD[8:15] go to expansion header, NOT to TDA. */
     for (int i = 0; i < 16; i++) {
-        mmio_write32(CONF_LCD_DATA0 + (i * 4), LCD_PAD_MODE0_OUT);
+        mmio_write32(CONF_LCD_DATA0 + (i * 4), LCD_PAD_MODE0);
     }
 
     /* Sync and clock signals */
-    mmio_write32(CONF_LCD_VSYNC, LCD_PAD_MODE0_OUT);
-    mmio_write32(CONF_LCD_HSYNC, LCD_PAD_MODE0_OUT);
-    mmio_write32(CONF_LCD_PCLK,  LCD_PAD_MODE0_OUT);
-    mmio_write32(CONF_LCD_AC_BIAS_EN, LCD_PAD_MODE0_OUT);
+    mmio_write32(CONF_LCD_VSYNC, LCD_PAD_MODE0);
+    mmio_write32(CONF_LCD_HSYNC, LCD_PAD_MODE0);
+    mmio_write32(CONF_LCD_PCLK,  LCD_PAD_MODE0);
+    mmio_write32(CONF_LCD_AC_BIAS_EN, LCD_PAD_MODE0);
 
-    uart_printf("[LCDC] LCD pinmux configured (20 pins, mode 0)\n");
+    uart_printf("[LCDC] LCD pinmux configured (20 pins, 16-bit RGB565)\n");
 }
 
 /* ============================================================
@@ -115,6 +120,7 @@ static void lcd_pinmux_setup(void)
 
 /* LCD_CTRL bits */
 #define LCD_CLK_DIVISOR(x)      ((x) << 8)
+#define LCD_AUTO_UFLOW_RESTART  (1 << 1)        /* Auto-restart on underflow */
 #define LCD_RASTER_MODE         0x01
 
 /* LCD_CLKC_ENABLE bits */
@@ -123,17 +129,25 @@ static void lcd_pinmux_setup(void)
 #define LCD_DMACLKEN            (1 << 2)
 
 /* LCD_LCDDMA_CTRL bits */
-#define LCD_DMA_BURST_16        (0x4 << 4)
-#define LCD_DMA_MASTER_PRIO     (1 << 2)    /* High DMA priority */
+#define LCD_DMA_BURST_16        (0x4 << 4)  /* Burst size 16 words, bits [6:4]=100 */
+#define LCD_DMA_TH_FIFO(x)     ((x) << 8)  /* FIFO threshold, bits [10:8] */
+#define LCD_DMA_TH_FIFO_512    6            /* 110b = 512 words (QNX production value) */
 
 /* LCD_RASTER_CTRL bits */
 #define LCD_TFT_24BPP_MODE      (1 << 25)
 #define LCD_TFT_24BPP_UNPACK    (1 << 26)  /* 32bpp unpacked (1 pixel = 4 bytes) */
 #define LCD_PALMODE_RAWDATA     (0x02 << 20)
+#define LCD_FDD_RASTER(x)       ((x) << 12)    /* FIFO DMA delay in RASTER_CTRL */
 #define LCD_TFT_MODE            (1 << 7)
 #define LCD_RASTER_ENABLE       (1 << 0)
 
-/* Timing register encoding macros (from U-Boot am335x-fb.c) */
+/* Timing register encoding macros
+ * PPL encoding: pixels_per_line = 16 × (ppl_field + 1)
+ * ppl_field = (width / 16) - 1, split across PPLLSB [9:4] and PPLMSB [bit 3]
+ *
+ * HARDWARE VERIFIED: bit 2 is reserved (write ignored on real AM335x).
+ * TRM 13.5.1.11 confirms PPLMSB at bit 3. U-Boot >>4 targets bit 2 and
+ * only works by accident for resolutions ≤ 1024 where MSB is not needed. */
 #define LCD_HORLSB(x)   (((((x) >> 4) - 1) & 0x3F) << 4)
 #define LCD_HORMSB(x)    (((((x) >> 4) - 1) & 0x40) >> 3)
 #define LCD_HFPLSB(x)   ((((x) - 1) & 0xFF) << 16)
@@ -148,7 +162,9 @@ static void lcd_pinmux_setup(void)
 #define LCD_HBPMSB(x)    ((((x) - 1) & 0x300) >> 4)
 #define LCD_HFPMSB(x)    ((((x) - 1) & 0x300) >> 8)
 
-/* Polarity inversion bits in TIMING_2 */
+/* Polarity/sync bits in TIMING_2 */
+#define SYNC_CTRL       (1 << 25)   /* Drive HSYNC/VSYNC during blanking */
+#define SYNC_EDGE       (1 << 24)   /* 0=rising, 1=falling */
 #define PCLK_INVERT     (1 << 22)   /* Drive data on falling edge of PCLK */
 #define HSYNC_INVERT    (1 << 21)
 #define VSYNC_INVERT    (1 << 20)
@@ -159,7 +175,7 @@ static void lcd_pinmux_setup(void)
 
 #define DISPLAY_WIDTH   1280
 #define DISPLAY_HEIGHT  720
-#define DISPLAY_BPP     16
+#define DISPLAY_BPP     16      /* RGB565 = 2 bytes per pixel (BBB: 16-bit LCD→TDA19988) */
 #define DISPLAY_HFP     110
 #define DISPLAY_HBP     220
 #define DISPLAY_HSW     40
@@ -192,7 +208,7 @@ static void lcd_pinmux_setup(void)
  * Module State
  * ============================================================ */
 
-static uint32_t *fb_pixels = NULL;  /* pointer to first pixel (after palette) */
+static uint16_t *fb_pixels = NULL;  /* pointer to first pixel (after palette), RGB565 */
 
 /* ============================================================
  * Display PLL Configuration
@@ -311,15 +327,15 @@ static void framebuffer_setup(void)
     }
 
     /* Pixel data starts after palette */
-    fb_pixels = (uint32_t *)(FB_VA_BASE + PALETTE_SIZE);
+    fb_pixels = (uint16_t *)(FB_VA_BASE + PALETTE_SIZE);
 
     /* Clear screen to black */
-    for (uint32_t i = 0; i < (FB_SIZE / 4); i++) {
-        fb_pixels[i] = 0x00000000;
+    for (uint32_t i = 0; i < (FB_SIZE / 2); i++) {
+        fb_pixels[i] = 0x0000;
     }
 
-    uart_printf("[LCDC] Framebuffer at PA 0x%x, %dx%d, %dbpp (RGB565)\n",
-                FB_PA_BASE, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_BPP);
+    uart_printf("[LCDC] Framebuffer at PA 0x%x, %dx%d, RGB565 (16bpp)\n",
+                FB_PA_BASE, DISPLAY_WIDTH, DISPLAY_HEIGHT);
 }
 
 /* ============================================================
@@ -346,20 +362,33 @@ void lcdc_init(void)
     mmio_write32(LCDC_BASE + LCD_CLKC_ENABLE,
                  LCD_CORECLKEN | LCD_LIDDCLKEN | LCD_DMACLKEN);
 
+    /* Step 4b: Reset all LCDC clock domains (QNX driver does this).
+     * Without reset, stale state from ROM/bootloader causes SYNC_LOST. */
+    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x0F);  /* Assert all resets */
+    for (volatile int i = 0; i < 1000; i++);
+    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x00);  /* De-assert */
+    for (volatile int i = 0; i < 1000; i++);
+    uart_printf("[LCDC] Clock domain reset complete\n");
+
     /* Step 5: Disable raster before configuration */
     mmio_write32(LCDC_BASE + LCD_RASTER_CTRL, 0);
 
-    /* Step 6: Set raster mode + clock divider */
+    /* Step 6: Set raster mode + clock divider.
+     * AUTO_UFLOW_RESTART: automatically restart raster on FIFO underflow
+     * instead of halting — prevents signal dropout on transient stalls. */
     mmio_write32(LCDC_BASE + LCD_CTRL,
-                 LCD_CLK_DIVISOR(LCDC_CLKDIV) | LCD_RASTER_MODE);
+                 LCD_CLK_DIVISOR(LCDC_CLKDIV) |
+                 LCD_AUTO_UFLOW_RESTART | LCD_RASTER_MODE);
 
     /* Step 7: Configure DMA — must include 32-byte palette header.
-     * LCDC reads palette first (0x4000 = raw data bypass), then pixels. */
+     * LCDC reads palette first (0x4000 = raw data bypass), then pixels.
+     * DMA priority bits [18:16] default to 000 = highest — no need to set. */
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_BASE, FB_PA_BASE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL, FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_BASE, FB_PA_BASE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_CEIL, FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
-    mmio_write32(LCDC_BASE + LCD_LCDDMA_CTRL, LCD_DMA_BURST_16);
+    mmio_write32(LCDC_BASE + LCD_LCDDMA_CTRL,
+                 LCD_DMA_BURST_16 | LCD_DMA_TH_FIFO(LCD_DMA_TH_FIFO_512));
 
     /* Step 8: Configure raster timing for 720p @ 60Hz */
     mmio_write32(LCDC_BASE + LCD_RASTER_TIMING_0,
@@ -375,52 +404,136 @@ void lcdc_init(void)
                  LCD_VSW(DISPLAY_VSW) |
                  LCD_VERLSB(DISPLAY_HEIGHT));
 
-    /* 720p CEA-861: HSYNC/VSYNC are active-high (positive polarity).
-     * IPC set: LCDC drives data on falling edge of PCLK, TDA19988
-     * samples on rising edge (VIP_CNTRL_3 EDGE=0) — half-cycle setup. */
+    /* TIMING_2 polarity and control flags.
+     * QNX BBB driver (hdmi.c line 640) uses:
+     *   LCDC_HSVS_CONTROL | LCDC_INV_PIX_CLOCK | LCDC_HSVS_FALLING_EDGE
+     *   + LCDC_INV_HSYNC for 720p (positive HSYNC → invert bit SET)
+     * These map to TIMING_2 bits [25:20]:
+     *   bit 25 = SYNC_CTRL (HSVS_CONTROL)
+     *   bit 24 = SYNC_EDGE (HSVS_FALLING_EDGE = 1)
+     *   bit 22 = IPC (INV_PIX_CLOCK = 1)
+     *   bit 21 = IHS (INV_HSYNC = 1 for 720p positive HSYNC)
+     *   bit 20 = IVS (INV_VSYNC = 0, 720p PVSYNC → QNX doesn't set this) */
     mmio_write32(LCDC_BASE + LCD_RASTER_TIMING_2,
                  LCD_HSWMSB(DISPLAY_HSW) |
                  LCD_VERMSB(DISPLAY_HEIGHT) |
                  LCD_HBPMSB(DISPLAY_HBP) |
                  LCD_HFPMSB(DISPLAY_HFP) |
+                 SYNC_CTRL |
+                 SYNC_EDGE |
                  PCLK_INVERT |
+                 HSYNC_INVERT |
                  0x0000FF00);    /* AC bias frequency */
 
-    /* Step 9: Enable raster output — 16bpp TFT (RGB565 on lcd_data[15:0]) */
+    /* Step 9: Enable raster output — 16bpp RGB565 TFT on lcd_data[15:0].
+     * BBB SRM 6.6.3: only 16 LCD data bits wired to TDA19988.
+     * FDD=0: QNX clears REQDLY field — no delay between DMA bursts.
+     * FDD=128 caused SYNC_LOST because DMA couldn't keep up with pixel drain. */
     mmio_write32(LCDC_BASE + LCD_RASTER_CTRL,
                  LCD_PALMODE_RAWDATA |
                  LCD_TFT_MODE |
                  LCD_RASTER_ENABLE);
 
-    /* Brief delay for first frame DMA to fill FIFO, then clear
-     * startup transient flags (SYNC_LOST, FUF) that fire before
-     * the raster engine stabilizes. */
-    for (volatile int i = 0; i < 50000; i++);
+    /* Wait for DMA to fill FIFO and raster to stabilize (~100ms).
+     * Empirically: volatile loop ~5µs/iter on this platform. 20K iters ≈ 100ms. */
+    for (volatile uint32_t i = 0; i < 20000; i++);
+
+    /* Clear startup transient flags (SYNC_LOST, FUF always fire on first enable) */
+    uint32_t irq_pre_clear = mmio_read32(LCDC_BASE + LCD_IRQSTATUS_RAW);
     mmio_write32(LCDC_BASE + LCD_IRQSTATUS, 0xFFFFFFFF);
+
+    /* Small delay then re-read — persistent flags indicate real problems */
+    for (volatile uint32_t i = 0; i < 5000000; i++);
+    uint32_t irq_post_clear = mmio_read32(LCDC_BASE + LCD_IRQSTATUS_RAW);
 
     uart_printf("[LCDC] Raster output enabled (%dx%d @ 60Hz)\n",
                 DISPLAY_WIDTH, DISPLAY_HEIGHT);
 
-    /* Diagnostic: readback all LCDC registers to verify configuration */
-    uart_printf("[LCDC] Register dump:\n");
-    uart_printf("  LCD_CTRL       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_CTRL));
-    uart_printf("  RASTER_CTRL    = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_CTRL));
-    uart_printf("  TIMING_0       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_0));
-    uart_printf("  TIMING_1       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_1));
-    uart_printf("  TIMING_2       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_2));
-    uart_printf("  DMA_FB0_BASE   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_BASE));
-    uart_printf("  DMA_FB0_CEIL   = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL));
-    uart_printf("  DMA_CTRL       = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_LCDDMA_CTRL));
+    /* === COMPREHENSIVE DIAGNOSTIC DUMP ===
+     * Print everything needed to verify configuration remotely.
+     * Provide computed expected values alongside readback for quick comparison. */
+
+    uart_printf("[LCDC] === Register Dump ===\n");
+    uart_printf("  LCD_PID        = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_PID));
+    uart_printf("  LCD_CTRL       = 0x%08x  (expect: CLKDIV=%d, raster mode)\n",
+                mmio_read32(LCDC_BASE + LCD_CTRL), LCDC_CLKDIV);
+    uart_printf("  RASTER_CTRL    = 0x%08x  (expect: 24bpp unpack+TFT+rawdata+FDD128+enable)\n",
+                mmio_read32(LCDC_BASE + LCD_RASTER_CTRL));
+
+    /* Timing — print raw + decoded for PPL verification */
+    uint32_t t0 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_0);
+    uint32_t t1 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_1);
+    uint32_t t2 = mmio_read32(LCDC_BASE + LCD_RASTER_TIMING_2);
+    uart_printf("  TIMING_0       = 0x%08x\n", t0);
+    uart_printf("  TIMING_1       = 0x%08x\n", t1);
+    uart_printf("  TIMING_2       = 0x%08x\n", t2);
+
+    /* Decode PPL from TIMING_0 to verify width encoding */
+    uint32_t ppllsb = (t0 >> 4) & 0x3F;
+    uint32_t pplmsb_bit3 = (t0 >> 3) & 0x1;
+    uint32_t pplmsb_bit2 = (t0 >> 2) & 0x1;
+    uart_printf("  TIMING_0 decode: PPLLSB=%d  bit3=%d  bit2=%d\n",
+                ppllsb, pplmsb_bit3, pplmsb_bit2);
+    uart_printf("    if PPLMSB=bit3: PPL=%d → width=%d pixels (TRM interpretation)\n",
+                (pplmsb_bit3 << 6) | ppllsb, 16 * (((pplmsb_bit3 << 6) | ppllsb) + 1));
+    uart_printf("    if PPLMSB=bit2: PPL=%d → width=%d pixels (U-Boot interpretation)\n",
+                (pplmsb_bit2 << 6) | ppllsb, 16 * (((pplmsb_bit2 << 6) | ppllsb) + 1));
+
+    /* Decode LPP from TIMING_1 */
+    uint32_t lpplsb = t1 & 0x3FF;
+    uart_printf("    LPPLSB=%d → height=%d lines\n", lpplsb, lpplsb + 1);
+
+    /* Sync polarity */
+    uart_printf("  TIMING_2 flags: SYNC_CTRL=%d  PCLK_INV=%d  HS_INV=%d  VS_INV=%d\n",
+                (t2 >> 25) & 1, (t2 >> 22) & 1, (t2 >> 21) & 1, (t2 >> 20) & 1);
+
+    /* DMA */
+    uart_printf("  DMA_FB0_BASE   = 0x%08x  (expect: 0x%08x)\n",
+                mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_BASE), FB_PA_BASE);
+    uart_printf("  DMA_FB0_CEIL   = 0x%08x  (expect: 0x%08x)\n",
+                mmio_read32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL),
+                FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
+    uart_printf("  DMA_CTRL       = 0x%08x  (expect: burst16=0x40)\n",
+                mmio_read32(LCDC_BASE + LCD_LCDDMA_CTRL));
     uart_printf("  CLKC_ENABLE    = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_CLKC_ENABLE));
-    uart_printf("  IRQSTATUS_RAW  = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_IRQSTATUS_RAW));
-    uart_printf("  SYSCONFIG      = 0x%08x\n", mmio_read32(LCDC_BASE + LCD_SYSCONFIG));
+
+    /* IRQ status — key flags for stability diagnosis */
+    uart_printf("  IRQ before clear = 0x%08x\n", irq_pre_clear);
+    uart_printf("  IRQ after clear  = 0x%08x  (0=good, nonzero=persistent error)\n",
+                irq_post_clear);
+    if (irq_post_clear & (1 << 5))
+        uart_printf("  WARNING: SYNC_LOST persistent — timing mismatch or no signal\n");
+    if (irq_post_clear & (1 << 6))
+        uart_printf("  WARNING: AC_BIAS_COUNT — AC bias transition issue\n");
+    if (irq_post_clear & (1 << 2))
+        uart_printf("  WARNING: FRAME_DONE without expected — DMA may be stalled\n");
+    if (irq_post_clear & (1 << 8))
+        uart_printf("  WARNING: FIFO_UNDERFLOW — DMA too slow, increase FDD or burst\n");
+
+    /* Clock verification */
+    uart_printf("[LCDC] === Clock Status ===\n");
+    uart_printf("  DPLL_DISP CLKMODE  = 0x%08x\n", mmio_read32(CM_CLKMODE_DPLL_DISP));
+    uart_printf("  DPLL_DISP IDLEST   = 0x%08x  (bit0=1 → locked)\n",
+                mmio_read32(CM_IDLEST_DPLL_DISP));
+    uart_printf("  DPLL_DISP CLKSEL   = 0x%08x  (M=%d N=%d)\n",
+                mmio_read32(CM_CLKSEL_DPLL_DISP), DPLL_DISP_M, DPLL_DISP_N);
+    uart_printf("  DPLL_DISP DIV_M2   = 0x%08x  (M2=%d)\n",
+                mmio_read32(CM_DIV_M2_DPLL_DISP), DPLL_DISP_M2);
+    uart_printf("  LCDC_PIXEL_CLK_SEL = 0x%08x  (0=DISP_DPLL)\n",
+                mmio_read32(CLKSEL_LCDC_PIXEL_CLK));
+    uart_printf("  LCDC_CLKCTRL       = 0x%08x  (IDLEST[17:16]=00 → functional)\n",
+                mmio_read32(CM_PER_LCDC_CLKCTRL));
+    uart_printf("  Computed: DPLL=%dMHz / CLKDIV=%d = %d.%02dMHz pixel clock\n",
+                (24 * DPLL_DISP_M) / (DPLL_DISP_N + 1), LCDC_CLKDIV,
+                (24 * DPLL_DISP_M) / (DPLL_DISP_N + 1) / LCDC_CLKDIV,
+                ((24 * DPLL_DISP_M * 100) / (DPLL_DISP_N + 1) / LCDC_CLKDIV) % 100);
 }
 
 /* ============================================================
  * Public Accessors
  * ============================================================ */
 
-uint32_t *lcdc_get_framebuffer(void)
+uint16_t *lcdc_get_framebuffer(void)
 {
     return fb_pixels;
 }

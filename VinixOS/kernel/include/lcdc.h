@@ -40,9 +40,9 @@ void lcdc_init(void);
 
 /**
  * Get pointer to framebuffer pixel data (after palette header)
- * @return Kernel VA pointer to first pixel
+ * @return Kernel VA pointer to first pixel (RGB565, uint16_t per pixel)
  */
-uint32_t *lcdc_get_framebuffer(void);
+uint16_t *lcdc_get_framebuffer(void);
 
 /**
  * Get display width in pixels
