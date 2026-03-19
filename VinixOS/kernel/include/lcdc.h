@@ -25,12 +25,12 @@
  * ============================================================ */
 
 /**
- * Initialize LCDC
+ * Initialize LCDC (configure only, raster NOT started)
  *
  * - Enables LCDC clock and Display PLL
  * - Configures raster mode with 720p @ 60Hz timing
  * - Sets up DMA to read framebuffer from DDR3
- * - Enables raster output
+ * - Does NOT enable raster output (call lcdc_start_raster() separately)
  *
  * CONTRACT:
  * - Must be called after mmu_init() and i2c_init()
@@ -39,8 +39,17 @@
 void lcdc_init(void);
 
 /**
+ * Enable LCDC raster output
+ *
+ * Starts pixel clock output and DMA-driven raster scan.
+ * Must be called AFTER TDA19988 is fully configured, so the
+ * HDMI transmitter is ready to receive pixel data immediately.
+ */
+void lcdc_start_raster(void);
+
+/**
  * Get pointer to framebuffer pixel data (after palette header)
- * @return Kernel VA pointer to first pixel (RGB565, uint16_t per pixel)
+ * @return Kernel VA pointer to first pixel (xRGB8888, uint32_t per pixel)
  */
 uint16_t *lcdc_get_framebuffer(void);
 

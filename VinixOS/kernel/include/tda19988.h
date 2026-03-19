@@ -183,11 +183,13 @@
 /* TDA19988-specific registers — Page 0x00 */
 #define REG_ENABLE_SPACE        TDA_MKREG(0x00, 0xD6)  /* Active space fill */
 
-/* Page 0x11: Audio / Encoder */
+/* Page 0x11: Audio / Encoder / InfoFrame control */
 #define REG_AIP_CNTRL_0         TDA_MKREG(0x11, 0x00)
 #define   AIP_CNTRL_0_RST_FIFO (1 << 0)
 #define REG_ENC_CNTRL           TDA_MKREG(0x11, 0x0D)
 #define   ENC_CNTRL_CTL_CODE(x) (((x) & 0x3) << 2)
+#define REG_DIP_IF_FLAGS        TDA_MKREG(0x11, 0x0F)  /* InfoFrame enable flags */
+#define   DIP_IF_FLAGS_IF1      (1 << 1)               /* AVI InfoFrame slot */
 
 /* Page 0x12: HDCP / OTP */
 #define REG_TX33                TDA_MKREG(0x12, 0xB8)
@@ -244,27 +246,21 @@
 /**
  * Initialize TDA19988 HDMI transmitter for 1280x720@60Hz RGB output
  *
- * - Enables CEC/HDMI modules via CEC I2C address
- * - Resets HDMI core
- * - Configures RGB 4:4:4 input from LCDC (24-bit parallel, external sync)
- * - Programs 720p@60Hz timing
- * - Enables TMDS output
+ * Full init sequence matching QNX production driver order:
+ * 1. CEC enable + soft reset
+ * 2. PLL common config
+ * 3. Version check + DDC/FRO setup
+ * 4. Enable video/audio ports + VIP mux (dpms)
+ * 5. Full video path config: timing, TBG, encoder (mode_set)
+ *
+ * Must be called BEFORE lcdc_start_raster() so TDA is ready
+ * to receive pixel data when LCDC raster starts.
  *
  * CONTRACT:
- * - Must be called after i2c_init() and lcdc_init()
+ * - Must be called after i2c_init()
  * - I2C0 must be functional at 100kHz
- * - LCDC must be generating pixel clock (VCLK) before TDA PLL can lock
+ * - LCDC raster must NOT be running yet
  */
 void tda19988_init(void);
-
-/**
- * Post-LCDC diagnostic and PLL retry.
- * Call AFTER lcdc_init() so pixel clock is present.
- *
- * - Reads HPD/RXSENS to verify cable detection
- * - Re-reads PLL registers (should now reflect values if PLL is clocked)
- * - If PLL still shows 0, re-writes PLL config
- */
-void tda19988_post_lcdc_init(void);
 
 #endif /* TDA19988_H */

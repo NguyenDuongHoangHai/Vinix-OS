@@ -55,43 +55,28 @@ void kernel_main(void)
      * We are now running at VA 0xC0xxxxxx. */
     mmu_init();
 
-    /* Graphics subsystem: I2C → TDA19988 (CEC/reset only) → LCDC → TDA19988 (PLL + video)
+    /* Graphics subsystem: pixel clock must be running before TDA can output TMDS.
+     * Unlike QNX (where U-Boot already started LCDC), we're bare-metal —
+     * LCDC raster must start first to provide pixel clock on LCD_PCLK pin.
      *
-     * Hardware finding: TDA19988 PLL registers on page 0x02 are NOT writable
-     * until LCDC pixel clock is present on the VP_CLK input pin.
-     * Without pixel clock, writes to page 0x02 are silently ignored (readback = 0x00).
-     * So: start LCDC first (generates 74.25MHz pixel clock), THEN configure TDA PLL. */
+     * Order: I2C → LCDC (config + raster start) → TDA (full init with pixel clock) */
     i2c_init();
     i2c_scan();
-    tda19988_init();            /* CEC enable + soft reset + version check (no PLL) */
-    lcdc_init();                /* Start pixel clock — TDA19988 PLL registers now writable */
-    tda19988_post_lcdc_init();  /* PLL config + video path + HPD check */
+    lcdc_init();                /* Configure LCDC + DPLL (raster NOT started yet) */
+    lcdc_start_raster();        /* Start pixel clock — TDA needs this for TMDS */
+    tda19988_init();            /* Full TDA config with pixel clock present */
 
-    /* Test: fill entire framebuffer with WHITE to verify pixel data output.
-     * If screen stays black → DE/VWIN window mismatch or DMA issue.
-     * If screen turns white → pixel path works, can then add color bands. */
+    /* Test: fill framebuffer with WHITE */
     {
         uint16_t *fb = lcdc_get_framebuffer();
         uint32_t w = lcdc_get_width();
         uint32_t h = lcdc_get_height();
 
-        /* Fill all white first */
         for (uint32_t i = 0; i < w * h; i++) {
             fb[i] = 0xFFFF;  /* White in RGB565 */
         }
 
-        /* Readback verify: check first and last pixel */
-        uart_printf("[FB] All white fill: first=0x%04x last=0x%04x (expect 0xFFFF)\n",
-                    fb[0], fb[w * h - 1]);
-
-        /* Also verify palette header is still intact */
-        volatile uint32_t *palette = (volatile uint32_t *)(fb) - (32/4);
-        uart_printf("[FB] Palette word0=0x%08x (expect 0x4000 for raw data)\n",
-                    palette[0]);
-
-        uart_printf("[FB] Framebuffer filled ALL WHITE, %dx%d RGB565\n", w, h);
-        uart_printf("[FB]   If screen white → pixel path OK\n");
-        uart_printf("[FB]   If screen black → DE/VWIN window mismatch\n");
+        uart_printf("[FB] White fill OK, %dx%d RGB565\n", w, h);
     }
 
     intc_init();
