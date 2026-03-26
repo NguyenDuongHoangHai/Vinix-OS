@@ -1,4 +1,4 @@
-# VinixOS — Vietnamese Operating System
+# VinixOS — Bare-metal ARM Operating System
 
 **Bare-metal operating system + cross-compiler cho ARMv7-A, chạy trên phần cứng thật (BeagleBone Black).**
 
@@ -438,4 +438,6 @@ VinCC hỗ trợ Subset C — đủ cho algorithms, data structures, và I/O qua
 
 ## License
 
-Developed by **Vinalinux** — Vietnamese Operating System Project.
+This project is licensed under the [MIT License](LICENSE).
+
+Developed by **Vinalinux**.
