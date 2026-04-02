@@ -148,65 +148,67 @@ sudo apt-get install -y \
     screen minicom
 ```
 
+Kiểm tra cài đặt thành công:
+
+```bash
+arm-none-eabi-gcc --version        # Cross-compiler cho kernel
+arm-linux-gnueabihf-as --version   # Assembler cho VinCC runtime
+python3 --version                  # Python cho VinCC compiler
+```
+
+Nếu dùng serial console, thêm user vào group `dialout` (cần logout/login lại):
+
+```bash
+sudo usermod -a -G dialout $USER
+```
+
 ---
 
 ## Cài Đặt và Build
 
-### Bước 1: Clone
+### Phần A — Cài Đặt VinixOS
+
+#### Bước 1: Clone
 
 ```bash
-git clone git@github.com:Vinalinux-Org/Vinix-OS.git
+git clone https://github.com/Vinalinux-Org/Vinix-OS.git
 cd Vinix-OS
 ```
 
-### Bước 2: Build VinixOS (bootloader + kernel + userspace)
+#### Bước 2: Build VinixOS (bootloader + kernel + userspace)
 
 ```bash
 make -C VinixOS
 ```
 
 Output:
-- `VinixOS/bootloader/build/MLO` — first-stage bootloader
+
+- `VinixOS/bootloader/MLO` — first-stage bootloader
 - `VinixOS/kernel/build/kernel.bin` — kernel với embedded shell
 
-### Bước 3: Build VinCC Runtime
-
-```bash
-cd CrossCompiler
-make runtime
-```
-
-### Bước 4: Compile Test Program
-
-```bash
-cd CrossCompiler
-python3 -m toolchain.main -o test_hello tests/programs/test_hello.c
-```
-
-### Bước 5: Embed vào VinixOS
-
-```bash
-# Đặt binary vào initfs → tự động có trong RAMFS
-cp test_hello VinixOS/initfs/
-
-# Rebuild kernel
-make -C VinixOS kernel
-```
-
-### Bước 6: Flash SD Card
+#### Bước 3: Flash SD Card
 
 ```bash
 # Tìm device SD card
 lsblk   # trước khi cắm
 lsblk   # sau khi cắm → device mới là SD card (vd: /dev/sdb)
-
-# Flash
-sudo bash scripts/flash_sdcard.sh /dev/sdX
 ```
 
-> ⚠️ **Cảnh báo:** Lệnh này ghi đè toàn bộ SD card. Kiểm tra kỹ device trước khi chạy.
+SD card cần có ít nhất 1 FAT partition (`/dev/sdX1`). Nếu SD card trắng, tạo partition trước:
 
-### Bước 7: Kết Nối Serial Console
+```bash
+sudo parted /dev/sdX mklabel msdos
+sudo parted /dev/sdX mkpart primary fat32 1MiB 128MiB
+sudo mkfs.vfat -F 32 /dev/sdX1
+```
+
+```bash
+bash scripts/flash_sdcard.sh /dev/sdX
+```
+
+> ⚠️ **Cảnh báo:** Lệnh này ghi đè MLO và kernel trên SD card. Kiểm tra kỹ device trước khi chạy.
+
+#### Bước 4: Kết Nối Serial Console
 
 ```bash
 screen /dev/ttyUSB0 115200
@@ -214,13 +216,9 @@ screen /dev/ttyUSB0 115200
 minicom -D /dev/ttyUSB0 -b 115200
 ```
 
-Nếu cần thêm quyền:
-```bash
-sudo usermod -a -G dialout $USER
-# Logout và login lại
-```
+Nếu không thấy output, kiểm tra đã chạy `sudo usermod -a -G dialout $USER` và **logout/login lại** chưa (xem phần Dependencies).
 
-### Bước 8: Boot BeagleBone Black
+#### Bước 5: Boot BeagleBone Black
 
 1. Cắm SD card vào BeagleBone Black
 2. Giữ nút **BOOT** (gần SD card slot)
@@ -251,15 +249,9 @@ $ _
 
 Trên **HDMI monitor**: Boot log → Splash → Home launcher
 
-### Bước 9: Chạy Program
+#### Bước 6: Dùng Shell
 
 ```
-$ ls
-test_hello  hello.txt  info.txt
-
-$ exec test_hello
-Hello, VinixOS!
-
 $ help
 Available commands:
   help     - Show this help
@@ -268,31 +260,65 @@ Available commands:
   ps       - Show running tasks
   meminfo  - Show memory layout
   exec     - Execute a program
+
+$ ls
+hello.txt  info.txt
 ```
+
+VinixOS đã sẵn sàng. Tiếp theo có thể dùng VinCC để viết và chạy chương trình riêng.
 
 ---
 
-## End-to-End Workflow
+### Phần B — Compile và Chạy Chương Trình với VinCC
+
+#### Bước 1: Cài đặt VinCC
+
+```bash
+bash scripts/install_compiler.sh
+source ~/.bashrc
+```
+
+Kiểm tra:
+
+```bash
+vincc --version
+# Expected: vincc 0.1.0
+```
+
+#### Bước 2: Compile thử chương trình test
+
+```bash
+vincc -o test_hello CrossCompiler/tests/programs/test_hello.c
+```
+
+Nếu thành công sẽ tạo file `test_hello` (ELF32 binary):
+
+```bash
+file test_hello
+# Expected: ELF 32-bit LSB executable, ARM, EABI5 ...
+```
+
+#### Bước 3: Embed vào VinixOS và Flash
+
+```bash
+# Đặt binary vào initfs → tự động có trong RAMFS
+cp test_hello VinixOS/initfs/
+
+# Rebuild kernel (để nhúng binary mới)
+make -C VinixOS kernel
+
+# Flash lại SD card
+bash scripts/flash_sdcard.sh /dev/sdX
+```
+
+Boot lại BeagleBone Black (giữ nút BOOT → cắm nguồn), sau đó trên shell:
 
 ```
-1. Viết chương trình C (Subset C)
-        ↓
-2. Compile với VinCC
-   python3 -m toolchain.main -o myapp myapp.c
-        ↓
-3. Nhúng vào VinixOS
-   cp myapp VinixOS/initfs/
-   make -C VinixOS kernel
-        ↓
-4. Flash SD card
-   bash scripts/flash_sdcard.sh /dev/sdX
-        ↓
-5. Boot BeagleBone Black
-   → UART console: tương tác với shell
-   → HDMI: boot animations + home launcher
-        ↓
-6. Chạy trên hardware thật
-   $ exec myapp
+$ ls
+test_hello  hello.txt  info.txt
+
+$ exec test_hello
+Hello, VinixOS!
 ```
 
 ---
@@ -324,6 +350,7 @@ Vinix-OS/
 │
 ├── scripts/
 │   ├── setup-environment.sh
+│   ├── install_compiler.sh
 │   ├── flash_sdcard.sh
 │   └── generate_ramfs_table.py
 │
@@ -346,7 +373,7 @@ Vinix-OS/
 | System Calls | ✅ Hoàn thành | [06-syscall-mechanism.md](VinixOS/docs/06-syscall-mechanism.md) |
 | Filesystem (VFS + RAMFS) | ✅ Hoàn thành | [07-filesystem-vfs-ramfs.md](VinixOS/docs/07-filesystem-vfs-ramfs.md) |
 | Userspace Shell | ✅ Hoàn thành | [08-userspace-application.md](VinixOS/docs/08-userspace-application.md) |
-| HDMI Display (800×600) | ✅ Hoàn thành | [CLAUDE.md](CLAUDE.md) |
+| HDMI Display (800×600) | ✅ Hoàn thành | [99-system-overview.md](VinixOS/docs/99-system-overview.md) |
 | Boot Screen (Log + Splash) | ✅ Hoàn thành | `kernel/src/ui/boot_screen.c` |
 | Home Launcher (Icon Grid) | ✅ Hoàn thành | `kernel/src/ui/boot_screen.c` |
 | Compiler Frontend | ✅ Hoàn thành | [architecture.md](CrossCompiler/docs/architecture.md) |
@@ -398,7 +425,7 @@ Vinix-OS/
 ## Troubleshooting
 
 **Boot fails (không thấy output UART):**
-- Verify SD card format đúng (FAT32 partition + MLO ở sector 0)
+- Verify SD card có FAT partition và MLO nằm trong partition đó
 - Check serial connection: GND-GND, RX-TX, TX-RX, đúng 3.3V TTL
 - Verify baudrate 115200 8N1
 
@@ -412,7 +439,7 @@ Vinix-OS/
 
 **Build fails:**
 - Verify `arm-none-eabi-gcc` đã install: `arm-none-eabi-gcc --version`
-- Build order: userspace trước kernel (`make -C VinixOS userspace` rồi `make -C VinixOS kernel`)
+- Dùng `make -C VinixOS` để build — Makefile tự xử lý build order (userspace trước kernel)
 
 **VinCC compiler error:**
 - Kiểm tra feature có trong Subset C: xem [subset_c_spec.md](CrossCompiler/docs/subset_c_spec.md)
