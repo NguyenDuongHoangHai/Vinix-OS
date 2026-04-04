@@ -82,6 +82,13 @@ void bootloader_main(void)
     writel(0x2, CM_PER_L4FW_CLKSTCTRL);  /* Enable L4FW clock */
     delay(1000);  /* Allow clocks to stabilize */
 
+    /* Turn on USR0-USR3 LEDs as boot indicator
+     * GPIO1 pins 21-24, CM_PER_GPIO1_CLKCTRL: 0x44E000AC */
+    writel(0x2, 0x44E000AC);
+    delay(500);
+    writel(readl(0x4804C134) & ~(0xF << 21), 0x4804C134);  /* GPIO_OE: output */
+    writel(0xF << 21, 0x4804C194);                          /* GPIO_SETDATAOUT */
+
     /* --------------------------------------------------------
      * STAGE 1: Disable Watchdog Timer 1 (WDT1)
      * ROM code enables watchdog with ~3 minute timeout
