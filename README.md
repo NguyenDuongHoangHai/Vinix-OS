@@ -194,19 +194,28 @@ lsblk   # trước khi cắm
 lsblk   # sau khi cắm → device mới là SD card (vd: /dev/sdb)
 ```
 
-SD card cần có ít nhất 1 FAT partition (`/dev/sdX1`). Nếu SD card trắng, tạo partition trước:
+Flash lần đầu (wipe toàn bộ SD card):
 
 ```bash
-sudo parted /dev/sdX mklabel msdos
-sudo parted /dev/sdX mkpart primary fat32 1MiB 128MiB
-sudo mkfs.vfat -F 32 /dev/sdX1
+sudo ./scripts/wipe_and_flash.sh /dev/sdX
 ```
+
+Cập nhật nhanh (chỉ ghi đè MLO + kernel, không wipe):
 
 ```bash
-bash scripts/flash_sdcard.sh /dev/sdX
+sudo ./scripts/flash_sdcard.sh /dev/sdX
 ```
 
-> ⚠️ **Cảnh báo:** Lệnh này ghi đè MLO và kernel trên SD card. Kiểm tra kỹ device trước khi chạy.
+> ⚠️ **Cảnh báo:** `wipe_and_flash.sh` xóa toàn bộ dữ liệu trên SD card. Kiểm tra kỹ device trước khi chạy.
+
+**Disk layout (RAW mode — TRM 26.1.8.5.5):**
+
+```
+Sector 256  (128KB) — MLO (TOC + GP header + code)
+Sector 512  (256KB) — MLO redundant copy
+Sector 768  (384KB) — MLO redundant copy
+Sector 2048 (1MB)   — kernel.bin
+```
 
 #### Bước 4: Kết Nối Serial Console
 
@@ -308,7 +317,7 @@ cp test_hello VinixOS/initfs/
 make -C VinixOS kernel
 
 # Flash lại SD card
-bash scripts/flash_sdcard.sh /dev/sdX
+sudo ./scripts/flash_sdcard.sh /dev/sdX
 ```
 
 Boot lại BeagleBone Black (giữ nút BOOT → cắm nguồn), sau đó trên shell:
@@ -351,7 +360,8 @@ Vinix-OS/
 ├── scripts/
 │   ├── setup-environment.sh
 │   ├── install_compiler.sh
-│   ├── flash_sdcard.sh
+│   ├── wipe_and_flash.sh      ← Full wipe + flash SD card
+│   ├── flash_sdcard.sh        ← Quick update MLO + kernel
 │   └── generate_ramfs_table.py
 │
 ├── CLAUDE.md                ← Project guide cho AI-assisted development
@@ -425,7 +435,7 @@ Vinix-OS/
 ## Troubleshooting
 
 **Boot fails (không thấy output UART):**
-- Verify SD card có FAT partition và MLO nằm trong partition đó
+- Verify SD card đã flash đúng: `sudo ./scripts/wipe_and_flash.sh /dev/sdX`
 - Check serial connection: GND-GND, RX-TX, TX-RX, đúng 3.3V TTL
 - Verify baudrate 115200 8N1
 
