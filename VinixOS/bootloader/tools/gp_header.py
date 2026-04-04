@@ -1,84 +1,115 @@
 #!/usr/bin/env python3
 """
 gp_header.py
-Generate GP (General Purpose) header for AM335x ROM code
+Generate MLO boot image for AM335x ROM code (GP device)
 
-GP Header Format (32 bytes):
-  Offset 0x00: Image size (4 bytes, little-endian)
-  Offset 0x04: Load address (4 bytes, little-endian)
-  Offset 0x08-0x1F: Reserved (zeros)
+MLO format: TOC (512 bytes) + GP header (8 bytes) + executable code
 
-The ROM code reads this header to know:
-  - How many bytes to load
-  - Where to load them in SRAM
+Same file works for both boot paths:
+  - RAW mode: dd to raw SD card sectors (0x20000, 0x40000, 0x60000)
+  - FAT mode: copy as "MLO" file on FAT partition
+
+ROM code checks for TOC/CHSETTINGS first in both modes.
 """
 
 import struct
 import sys
 import os
 
-def make_gp_header(input_bin, output_mlo):
+# Load address in SRAM (OCMC RAM start per AM335x BootROM)
+# BootROM loads GP image to 0x402F0400 (Public RAM area, TRM sec 26.1.4.2)
+LOAD_ADDR = 0x402F0400
+
+# BootROM OCMC RAM (public) = 111616 bytes (109 KB)
+# TRM sec 26.1.9.2: "maximum size of downloaded image is 109 KB"
+MAX_SIZE = 109 * 1024
+
+
+def make_toc():
     """
-    Generate MLO file with GP header for AM335x BootROM (GP device, non-XIP memory boot)
+    Create 512-byte TOC (Table of Contents) with CHSETTINGS.
 
-    TRM Table 26-37: GP Device Image Format
-      Offset 0x00: Size        (4 bytes LE) = size of executable code in bytes
-      Offset 0x04: Destination (4 bytes LE) = SRAM load address AND entry point
-      Offset 0x08+: Executable code (binary)
+    TRM sec 26.1.11 — TOC format for GP device:
+      Offset 0x00: TOC Item 1 (32 bytes) — points to CHSETTINGS
+      Offset 0x20: TOC Item 2 (32 bytes) — 0xFF terminator
+      Offset 0x40: CHSETTINGS magic values (Table 26-39)
+      Rest:        zeros
 
-    NOTE from TRM sec 26.1.10.2:
-      "The Destination address field stands for both:
-       - Target address for image copy from non-XIP storage to target location
-       - Entry point for image code"
-      → _start must be the FIRST instruction at LOAD_ADDR.
-
-    NOTE on header size: The GP header is exactly 8 bytes (Size + Destination).
-    The Size field = size of the EXECUTABLE CODE only (does NOT include the 8-byte header).
-    BootROM reads Size bytes starting from offset 0x08 in the file and copies them
-    to Destination. Execution then starts at Destination.
-
-    Args:
-        input_bin: Path to bootloader.bin (raw binary, no header)
-        output_mlo: Path to output MLO file (8-byte header + binary)
+    @return  512-byte TOC block
     """
-    # Load address in SRAM (OCMC RAM start per AM335x BootROM)
-    # BootROM loads GP image to 0x402F0400 (Public RAM area, TRM sec 26.1.4.2)
-    LOAD_ADDR = 0x402F0400
+    toc = bytearray(512)
 
-    # Read bootloader binary
+    # TOC Item 1 — CHSETTINGS (Table 26-38)
+    toc_item = struct.pack('<III',
+        0x00000040,     # Start: offset to CHSETTINGS data within TOC
+        0x0000000C,     # Size: 12 bytes of CHSETTINGS data
+        0x00000000,     # Flags: not used
+    )
+    toc_item += struct.pack('<II',
+        0x00000000,     # Align: not used
+        0x00000000,     # Load Address: not used
+    )
+    # Filename: "CHSETTINGS\0" (12 bytes, null-terminated)
+    toc_item += b'CHSETTINGS\x00\x00'
+
+    toc[0x00:0x00 + len(toc_item)] = toc_item
+
+    # TOC Item 2 — terminator (all 0xFF)
+    toc[0x20:0x40] = b'\xFF' * 32
+
+    # CHSETTINGS magic values (Table 26-39)
+    struct.pack_into('<II', toc, 0x40,
+        0xC0C0C0C1,    # Magic value 1
+        0x00000100,    # Magic value 2
+    )
+
+    return bytes(toc)
+
+
+def make_gp_header(code_size):
+    """
+    Create 8-byte GP header per TRM Table 26-37.
+
+    @param code_size  Size of executable code in bytes
+    @return           8-byte GP header (size + destination, little-endian)
+    """
+    return struct.pack('<II', code_size, LOAD_ADDR)
+
+
+def make_mlo(input_bin, output_mlo):
+    """
+    Generate MLO = TOC (512) + GP header (8) + code.
+
+    @param input_bin   Path to bootloader.bin (raw binary)
+    @param output_mlo  Path to output MLO file
+    @return            0 on success, 1 on error
+    """
     with open(input_bin, 'rb') as f:
         bootloader = f.read()
 
-    # code_size = number of bytes of executable code (NOT including the 8-byte header)
-    # TRM Table 26-37: Size field = "Size of the image" = executable code bytes only
     code_size = len(bootloader)
+    toc = make_toc()
+    gp_header = make_gp_header(code_size)
 
-    # Create GP header (exactly 8 bytes per TRM Table 26-37)
-    header = struct.pack('<I', code_size)   # Offset 0x00: Size of executable code
-    header += struct.pack('<I', LOAD_ADDR)  # Offset 0x04: Destination = load addr = entry point
-
-    # Write MLO file = 8-byte header + binary code
     with open(output_mlo, 'wb') as f:
-        f.write(header)
-        f.write(bootloader)
+        f.write(toc)        # 512 bytes: TOC with CHSETTINGS
+        f.write(gp_header)  # 8 bytes:   GP header (size + destination)
+        f.write(bootloader) # N bytes:   executable code
 
-    # Print summary
-    total_mlo_size = len(header) + code_size
+    total_size = len(toc) + len(gp_header) + code_size
     print(f"Generated {output_mlo}:")
     print(f"  Bootloader size: {code_size} bytes")
-    print(f"  Total MLO size:  {total_mlo_size} bytes")
+    print(f"  Total MLO size:  {total_size} bytes (512 TOC + 8 GP + {code_size} code)")
     print(f"  Load address:    0x{LOAD_ADDR:08X}")
 
-    # Check size limit: BootROM OCMC RAM (public) = 111616 bytes (109 KB)
-    # TRM sec 26.1.9.2: "maximum size of downloaded image is 109 KB"
-    MAX_SIZE = 109 * 1024  # 111616 bytes
     if code_size > MAX_SIZE:
-        print(f"  WARNING: Image size ({code_size} bytes) exceeds BootROM SRAM limit ({MAX_SIZE} bytes)!")
+        print(f"  WARNING: Image ({code_size} bytes) exceeds SRAM limit ({MAX_SIZE} bytes)!")
         return 1
     else:
-        print(f"  SRAM usage:      {code_size}/{MAX_SIZE} bytes ({code_size*100//MAX_SIZE}%)")
+        print(f"  SRAM usage:      {code_size}/{MAX_SIZE} bytes ({code_size * 100 // MAX_SIZE}%)")
 
     return 0
+
 
 def main():
     if len(sys.argv) != 3:
@@ -87,16 +118,16 @@ def main():
         print("Example:")
         print("  python3 gp_header.py bootloader.bin MLO")
         return 1
-    
+
     input_bin = sys.argv[1]
     output_mlo = sys.argv[2]
-    
-    # Check input file exists
+
     if not os.path.exists(input_bin):
         print(f"Error: Input file '{input_bin}' not found")
         return 1
-    
-    return make_gp_header(input_bin, output_mlo)
+
+    return make_mlo(input_bin, output_mlo)
+
 
 if __name__ == '__main__':
     sys.exit(main())

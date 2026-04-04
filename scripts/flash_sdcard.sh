@@ -72,12 +72,19 @@ else
     echo "Using existing mount: $MOUNTPOINT"
 fi
 
-# Copy MLO (to FAT partition)
+# Write MLO at RAW mode offsets (TRM 26.1.8.5.5)
+echo "Writing MLO at RAW offsets (sectors 256, 512, 768)..."
+sudo dd if="$MLO" of="$DEVICE" bs=512 seek=256 conv=notrunc status=none
+sudo dd if="$MLO" of="$DEVICE" bs=512 seek=512 conv=notrunc status=none
+sudo dd if="$MLO" of="$DEVICE" bs=512 seek=768 conv=notrunc status=none
+sudo sync
+
+# Copy MLO to FAT partition (fallback)
 echo "Removing old MLO to prevent FAT fragmentation..."
 sudo rm -f "$MOUNTPOINT/MLO"
 sudo sync
 
-echo "Copying MLO to FAT ($MOUNTPOINT)..."
+echo "Copying MLO to FAT ($MOUNTPOINT) as fallback..."
 sudo cp "$MLO" "$MOUNTPOINT/MLO"
 sudo sync
 
@@ -95,9 +102,9 @@ sudo sync
 
 # Verify FAT copy
 if [ -f "$MOUNTPOINT/MLO" ]; then
-    echo "Success: MLO and Kernel (raw sector 2048) updated."
+    echo "Success: MLO (RAW x3 + FAT) + Kernel (raw sector 2048) updated."
 else
-    echo "Error: MLO Copy failed."
+    echo "Warning: MLO FAT copy failed (RAW mode still available)."
 fi
 
 # Cleanup

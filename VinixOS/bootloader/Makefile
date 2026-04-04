@@ -92,13 +92,12 @@ $(BIN): $(ELF)
 	@echo "OBJCOPY $@"
 	@$(OBJCOPY) -O binary $< $@
 
-# MLO: Add GP header
+# MLO: TOC + GP header + code (works for both RAW and FAT boot)
 $(MLO): $(BIN)
 	@echo "GEN MLO"
 	@python3 $(TOOLS_DIR)/gp_header.py $< $@
 	@echo ""
 	@echo "Build complete!"
-	@echo "Output: $(MLO)"
 	@ls -lh $(MLO)
 
 # Show size
