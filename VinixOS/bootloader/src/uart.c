@@ -28,9 +28,20 @@ void uart_init(void)
 {
     uint32_t divisor;
     uint32_t i;
-    
-    /* UART clock is 48MHz from PER PLL (configured by ROM) */
-    
+
+    /* 0. Enable UART0 clock and pin mux
+     * CRITICAL: ROM only enables UART0 clock when UART boot is in the
+     * boot sequence. On cold boot with S2 (SD card first), ROM may skip
+     * UART0 clock enable entirely → UART registers inaccessible. */
+    writel(0x2, CM_WKUP_UART0_CLKCTRL);         /* Enable UART0 clock */
+    while ((readl(CM_WKUP_UART0_CLKCTRL) & 0x3) != 0x2);  /* Wait until enabled */
+
+    /* Pin mux: Mode 0, pull-up, receiver enabled
+     * CONF_UART0_RXD: Mode 0 + RXACTIVE + PULLUP = 0x30
+     * CONF_UART0_TXD: Mode 0 + PULLUP = 0x10 (output, no RXACTIVE) */
+    writel(0x30, CONF_UART0_RXD);
+    writel(0x10, CONF_UART0_TXD);
+
     /* 1. Hard reset UART by disabling it */
     writel(UART_DISABLE, UART0_MDR1);
     delay(10000);

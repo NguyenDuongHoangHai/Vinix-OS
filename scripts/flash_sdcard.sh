@@ -1,6 +1,12 @@
 #!/bin/bash
-# Update MLO on SD Card Boot Partition (FAT)
+# ============================================================
+# flash_sdcard.sh
+# ------------------------------------------------------------
+# Update MLO + Kernel on existing SD card (RAW mode).
+# Does NOT reformat — only overwrites raw sectors.
+#
 # Usage: ./flash_sdcard.sh /dev/sdX
+# ============================================================
 
 DEVICE=$1
 
@@ -10,108 +16,44 @@ if [ -z "$DEVICE" ]; then
     exit 1
 fi
 
-# Safety check: verify it's a valid block device
 if ! sudo blockdev --getsz "$DEVICE" >/dev/null 2>&1; then
     echo "Error: Device $DEVICE is not a valid block device or requires root permissions."
     exit 1
 fi
 
-# Resolve Project Root (Robust)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPDIR="$(dirname "$SCRIPT_DIR")"
 MLO="$TOPDIR/VinixOS/bootloader/MLO"
 KERNEL="$TOPDIR/VinixOS/kernel/build/kernel.bin"
 
 echo "========================================"
-echo " Update Bootloader (MLO)"
+echo " Update MLO + Kernel (RAW mode)"
 echo "========================================"
-echo "Project Root: $TOPDIR"
-echo "Device:       $DEVICE"
+echo "Device: $DEVICE"
 
-# Check MLO
 if [ ! -f "$MLO" ]; then
-    echo "Error: MLO not found at $MLO"
-    echo "Please build bootloader first:"
-    echo "  cd $TOPDIR/VinixOS/bootloader && make"
+    echo "Error: MLO not found. Run: make -C $TOPDIR/VinixOS bootloader"
     exit 1
 fi
-
-# Check Kernel
 if [ ! -f "$KERNEL" ]; then
-    echo "Error: kernel.bin not found at $KERNEL"
-    echo "Please build kernel first:"
-    echo "  cd $TOPDIR/VinixOS/kernel && make"
+    echo "Error: kernel.bin not found. Run: make -C $TOPDIR/VinixOS kernel"
     exit 1
 fi
 
-# Define Partition
-BOOT_PART="${DEVICE}1"
+echo "MLO:    $(stat -c%s "$MLO") bytes"
+echo "Kernel: $(stat -c%s "$KERNEL") bytes"
+echo ""
 
-# Check Partition
-if [ ! -b "$BOOT_PART" ]; then
-    echo "Error: Partition $BOOT_PART not found."
-    exit 1
-fi
-
-# Mount Point Logic
-MOUNTPOINT=$(lsblk -no MOUNTPOINT "$BOOT_PART" | head -n 1)
-MY_MOUNT=0
-
-if [ -z "$MOUNTPOINT" ]; then
-    echo "Mounting $BOOT_PART..."
-    MOUNTPOINT="/tmp/sd_boot_update_$$"
-    mkdir -p "$MOUNTPOINT"
-    sudo mount "$BOOT_PART" "$MOUNTPOINT"
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to mount $BOOT_PART"
-        rmdir "$MOUNTPOINT"
-        exit 1
-    fi
-    MY_MOUNT=1
-else
-    echo "Using existing mount: $MOUNTPOINT"
-fi
-
-# Write MLO at RAW mode offsets (TRM 26.1.8.5.5)
-echo "Writing MLO at RAW offsets (sectors 256, 512, 768)..."
+# MLO at RAW offsets (TRM 26.1.8.5.5)
+echo "Writing MLO at sectors 256, 512, 768..."
 sudo dd if="$MLO" of="$DEVICE" bs=512 seek=256 conv=notrunc status=none
 sudo dd if="$MLO" of="$DEVICE" bs=512 seek=512 conv=notrunc status=none
 sudo dd if="$MLO" of="$DEVICE" bs=512 seek=768 conv=notrunc status=none
+
+# Kernel at sector 2048
+echo "Writing Kernel at sector 2048..."
+sudo dd if="$KERNEL" of="$DEVICE" bs=512 seek=2048 conv=notrunc status=none
+
 sudo sync
-
-# Copy MLO to FAT partition (fallback)
-echo "Removing old MLO to prevent FAT fragmentation..."
-sudo rm -f "$MOUNTPOINT/MLO"
-sudo sync
-
-echo "Copying MLO to FAT ($MOUNTPOINT) as fallback..."
-sudo cp "$MLO" "$MOUNTPOINT/MLO"
-sudo sync
-
-# Flash Kernel (raw copy to device at sector 2048)
-echo "Writing Kernel to $DEVICE at sector 2048 (1MB offset)..."
-if ! sudo dd if="$KERNEL" of="$DEVICE" bs=512 seek=2048 conv=notrunc status=progress; then
-    echo "Error: Failed to write Kernel via dd."
-    if [ $MY_MOUNT -eq 1 ]; then
-        sudo umount "$MOUNTPOINT"
-        rmdir "$MOUNTPOINT"
-    fi
-    exit 1
-fi
-sudo sync
-
-# Verify FAT copy
-if [ -f "$MOUNTPOINT/MLO" ]; then
-    echo "Success: MLO (RAW x3 + FAT) + Kernel (raw sector 2048) updated."
-else
-    echo "Warning: MLO FAT copy failed (RAW mode still available)."
-fi
-
-# Cleanup
-if [ $MY_MOUNT -eq 1 ]; then
-    echo "Unmounting..."
-    sudo umount "$MOUNTPOINT"
-    rmdir "$MOUNTPOINT"
-fi
-
-echo "Done."
+echo ""
+echo "Done. MLO (x3) + Kernel updated."

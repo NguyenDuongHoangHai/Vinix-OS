@@ -72,7 +72,7 @@ void c_undef_handler(void) {
 void bootloader_main(void)
 {
     struct boot_params params;
-    
+
     /* --------------------------------------------------------
      * STAGE 0: Enable essential clocks
      * Must be done before any peripheral access
