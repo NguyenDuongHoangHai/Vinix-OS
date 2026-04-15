@@ -12,7 +12,6 @@ LINKER = linker
 # Directory containing the userspace payload (shell)
 USERSPACE_DIR = ../userspace
 BUILD_DIR = build
-INITFS_DIR = ../initfs
 
 # Source files
 ASM_BOOT_SRC = $(SRC)/arch/arm/entry/reset.S $(SRC)/arch/arm/entry/entry.S
@@ -20,21 +19,17 @@ ASM_EXC_SRC = $(SRC)/arch/arm/exceptions/vectors.S $(SRC)/arch/arm/exceptions/ex
 C_KERNEL_SRC = $(SRC)/kernel/main.c $(SRC)/kernel/exceptions/exception_handlers.c $(SRC)/kernel/irq/irq_core.c \
                $(SRC)/kernel/core/svc_handler.c
 C_DRIVER_SRC = $(SRC)/drivers/uart.c $(SRC)/drivers/watchdog.c $(SRC)/drivers/intc.c $(SRC)/drivers/timer.c \
-               $(SRC)/drivers/i2c.c $(SRC)/drivers/lcdc.c $(SRC)/drivers/tda19988.c
-C_FS_SRC = $(SRC)/kernel/fs/vfs.c $(SRC)/kernel/fs/ramfs.c
+               $(SRC)/drivers/i2c.c $(SRC)/drivers/lcdc.c $(SRC)/drivers/tda19988.c \
+               $(SRC)/drivers/mmc.c $(SRC)/drivers/mbr.c
+C_FS_SRC = $(SRC)/kernel/fs/vfs.c $(SRC)/kernel/fs/fat32.c
 C_LIBC_SRC = libc/src/string.c
-
-# RAMFS build-time filesystem - auto-discover files in initfs/
-INITFS_FILES = $(shell find $(INITFS_DIR) -type f 2>/dev/null)
-RAMFS_GENERATED_H = $(BUILD_DIR)/ramfs_generated.h
-RAMFS_GENERATED_C = $(BUILD_DIR)/ramfs_generated.c
-RAMFS_GENERATED_S = $(BUILD_DIR)/ramfs_payload.S
 
 # Objects (Flattened in BUILD_DIR)
 ASM_OBJ = $(addprefix $(BUILD_DIR)/, vectors.o reset.o entry.o exception_entry.o context_switch.o mmu_enable.o)
 C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o watchdog.o intc.o timer.o \
                i2c.o lcdc.o tda19988.o fb.o boot_screen.o \
-               scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o ramfs.o ramfs_generated.o string.o)
+               scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o string.o \
+               mmc.o mbr.o fat32.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
 # Flags
@@ -65,7 +60,7 @@ $(PAYLOAD_BIN):
 	$(MAKE) -C $(USERSPACE_DIR)
 
 # Payload Embed Target
-$(BUILD_DIR)/payload.o: $(SRC)/kernel/payload.S $(PAYLOAD_BIN) $(RAMFS_GENERATED_S) | $(BUILD_DIR)
+$(BUILD_DIR)/payload.o: $(SRC)/kernel/payload.S $(PAYLOAD_BIN) | $(BUILD_DIR)
 	$(CC) $(ASFLAGS) -c $< -o $@
 
 
@@ -132,6 +127,12 @@ $(BUILD_DIR)/lcdc.o: $(SRC)/drivers/lcdc.c | $(BUILD_DIR)
 $(BUILD_DIR)/tda19988.o: $(SRC)/drivers/tda19988.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/mmc.o: $(SRC)/drivers/mmc.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/mbr.o: $(SRC)/drivers/mbr.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/fb.o: $(SRC)/drivers/fb.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -150,20 +151,8 @@ $(BUILD_DIR)/mmu.o: $(SRC)/kernel/mmu/mmu.c | $(BUILD_DIR)
 $(BUILD_DIR)/vfs.o: $(SRC)/kernel/fs/vfs.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ramfs.o: $(SRC)/kernel/fs/ramfs.c $(RAMFS_GENERATED_H) | $(BUILD_DIR)
+$(BUILD_DIR)/fat32.o: $(SRC)/kernel/fs/fat32.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
-
-# RAMFS build-time filesystem generation
-$(RAMFS_GENERATED_H) $(RAMFS_GENERATED_C) $(RAMFS_GENERATED_S): $(INITFS_FILES) ../scripts/generate_ramfs_table.py | $(BUILD_DIR)
-	@echo "  GEN     ramfs_generated.c/h/S"
-	@python3 ../scripts/generate_ramfs_table.py \
-		--source-dir $(INITFS_DIR) \
-		--output-header $(RAMFS_GENERATED_H) \
-		--output-source $(RAMFS_GENERATED_C) \
-		--output-assembly $(RAMFS_GENERATED_S)
-
-$(BUILD_DIR)/ramfs_generated.o: $(RAMFS_GENERATED_C) $(RAMFS_GENERATED_H) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c $(RAMFS_GENERATED_C) -o $@
 
 # C files - libc
 $(BUILD_DIR)/string.o: libc/src/string.c | $(BUILD_DIR)
