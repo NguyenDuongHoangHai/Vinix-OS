@@ -5,7 +5,6 @@
  * ============================================================ */
 
 #include "vfs.h"
-#include "ramfs.h"
 #include "syscalls.h"
 #include "uart.h"
 #include "string.h"
@@ -20,8 +19,9 @@ static struct vfs_operations *vfs_find_fs(const char *path);
 
 struct vfs_fd {
     bool     in_use;        /* FD allocated? */
-    uint32_t file_index;    /* Index into ramfs_file_table */
-    uint32_t offset;        /* Current read position */
+    uint32_t file_index;    /* Index into underlying fs file table */
+    uint32_t offset;        /* Current read/write position */
+    int      flags;         /* Open flags (O_RDONLY, O_WRONLY, O_RDWR, ...) */
 };
 
 static struct vfs_fd fd_table[MAX_FDS];
@@ -52,6 +52,7 @@ void vfs_init(void)
         fd_table[i].in_use = false;
         fd_table[i].file_index = 0;
         fd_table[i].offset = 0;
+        fd_table[i].flags = 0;
     }
     
     /* Initialize mount table */
@@ -118,47 +119,62 @@ static struct vfs_operations *vfs_find_fs(const char *path)
  */
 int vfs_open(const char *path, int flags)
 {
-    /* Only support O_RDONLY */
-    if (flags != O_RDONLY) {
+    int access = flags & O_ACCMODE;
+
+    if (access != O_RDONLY && access != O_WRONLY && access != O_RDWR) {
         return E_ARG;
     }
-    
-    /* Find filesystem for path */
+
     struct vfs_operations *fs_ops = vfs_find_fs(path);
     if (!fs_ops) {
         return E_NOENT;
     }
-    
-    /* Strip leading '/' if present */
+
+    if ((access == O_WRONLY || access == O_RDWR) && fs_ops->write == NULL) {
+        return E_PERM;
+    }
+
     const char *filename = path;
     if (*filename == '/') {
         filename++;
     }
-    
-    /* Lookup file in filesystem */
+
     int file_index = fs_ops->lookup(filename);
+
     if (file_index < 0) {
-        return E_NOENT;  /* File not found */
+        if ((flags & O_CREAT) && fs_ops->create != NULL) {
+            file_index = fs_ops->create(filename);
+            if (file_index < 0) {
+                return file_index;
+            }
+        } else {
+            return E_NOENT;
+        }
+    } else if (flags & O_TRUNC) {
+        if (fs_ops->truncate != NULL) {
+            int r = fs_ops->truncate(file_index, 0);
+            if (r < 0) return r;
+        }
     }
-    
-    /* Allocate file descriptor */
+
+    /* FDs 0-2 reserved for stdin/stdout/stderr */
     int fd = -1;
-    for (int i = 3; i < MAX_FDS; i++) {  /* Reserve 0-2 for stdin/stdout/stderr */
+    for (int i = 3; i < MAX_FDS; i++) {
         if (!fd_table[i].in_use) {
             fd = i;
             break;
         }
     }
-    
+
     if (fd < 0) {
-        return E_MFILE;  /* Too many open files */
+        return E_MFILE;
     }
-    
-    /* Initialize FD */
+
     fd_table[fd].in_use = true;
     fd_table[fd].file_index = file_index;
     fd_table[fd].offset = 0;
-    
+    fd_table[fd].flags = flags;
+
     return fd;
 }
 
@@ -193,6 +209,36 @@ int vfs_read(int fd, void *buf, uint32_t len)
     return bytes_read;
 }
 
+int vfs_write(int fd, const void *buf, uint32_t len)
+{
+    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].in_use) {
+        return E_BADF;
+    }
+
+    int access = fd_table[fd].flags & O_ACCMODE;
+    if (access != O_WRONLY && access != O_RDWR) {
+        return E_PERM;
+    }
+
+    struct vfs_operations *fs_ops = vfs_find_fs("/");
+    if (!fs_ops || fs_ops->write == NULL) {
+        return E_PERM;
+    }
+
+    int bytes_written = fs_ops->write(
+        fd_table[fd].file_index,
+        fd_table[fd].offset,
+        buf,
+        len
+    );
+
+    if (bytes_written > 0) {
+        fd_table[fd].offset += bytes_written;
+    }
+
+    return bytes_written;
+}
+
 /**
  * Close file descriptor
  */
@@ -207,7 +253,8 @@ int vfs_close(int fd)
     fd_table[fd].in_use = false;
     fd_table[fd].file_index = 0;
     fd_table[fd].offset = 0;
-    
+    fd_table[fd].flags = 0;
+
     return E_OK;
 }
 

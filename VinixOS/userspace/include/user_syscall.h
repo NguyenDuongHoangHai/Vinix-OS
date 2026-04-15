@@ -73,6 +73,15 @@ int sys_open(const char *path, int flags);
 int sys_read_file(int fd, void *buf, uint32_t len);
 
 /*
+ * Write to file descriptor
+ * fd: File descriptor (opened with O_WRONLY or O_RDWR)
+ * buf: Data to write
+ * len: Number of bytes to write
+ * Returns: Number of bytes written (>= 0), or negative error code
+ */
+int sys_write_file(int fd, const void *buf, uint32_t len);
+
+/*
  * Close file descriptor
  * fd: File descriptor
  * Returns: 0 on success, negative error code on failure

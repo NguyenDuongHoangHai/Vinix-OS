@@ -5,11 +5,12 @@
 # Build VinixOS and flash directly to SD card.
 #
 # Disk layout:
-#   Sector 0          MBR
+#   Sector 0          MBR (partition table + 0xAA55 signature)
 #   Sector 256        MLO (128KB offset, RAW mode)
 #   Sector 512        MLO redundant copy 1
 #   Sector 768        MLO redundant copy 2
 #   Sector 2048       kernel.bin (1MB offset)
+#   Sector 8192+      FAT32 partition (4MB offset) — rootfs
 #
 # Usage: sudo ./wipe_and_flash.sh [OPTIONS] /dev/sdX
 #
@@ -42,6 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPDIR="$(dirname "$SCRIPT_DIR")"
 MLO="$TOPDIR/VinixOS/bootloader/MLO"
 KERNEL="$TOPDIR/VinixOS/kernel/build/kernel.bin"
+INITFS_DIR="$TOPDIR/VinixOS/initfs"
 
 # ============================================================
 # Parse arguments
@@ -151,16 +153,51 @@ echo -e "${CYAN}[2/3] Flashing...${NC}"
 umount "${DEVICE}"* 2>/dev/null || true
 umount "${DEVICE}p"* 2>/dev/null || true
 
-# Wipe first 2MB (covers MBR + all MLO slots)
-dd if=/dev/zero of="$DEVICE" bs=512 count=4096 status=none
+# Wipe first 9MB (covers MBR + MLO + kernel + start of FAT32 partition)
+dd if=/dev/zero of="$DEVICE" bs=1M count=9 status=none
 
-# MLO at RAW offsets (TRM 26.1.8.5.5)
+# Create MBR partition table: one FAT32 LBA partition starting at sector 8192
+# Size: 131072 sectors (64MB) — enough for rootfs, fits on any SD card
+sfdisk "$DEVICE" >/dev/null 2>&1 <<EOF
+label: dos
+8192,131072,c
+EOF
+partprobe "$DEVICE" 2>/dev/null || true
+sleep 1
+
+# Determine partition device node (/dev/sdX1 or /dev/mmcblkXp1)
+if [ -b "${DEVICE}1" ]; then
+    PART="${DEVICE}1"
+elif [ -b "${DEVICE}p1" ]; then
+    PART="${DEVICE}p1"
+else
+    echo -e "${RED}Error: Partition device not found after sfdisk${NC}"
+    exit 1
+fi
+
+# Format FAT32 partition
+mkfs.fat -F 32 -n VINIX "$PART" >/dev/null
+
+# MLO at RAW offsets (TRM 26.1.8.5.5) — written AFTER mkfs.fat since
+# mkfs touches sector 0 (partition table region), but MLO sectors
+# 256/512/768 are in the unpartitioned gap and untouched.
 dd if="$MLO" of="$DEVICE" bs=512 seek=256 conv=notrunc status=none
 dd if="$MLO" of="$DEVICE" bs=512 seek=512 conv=notrunc status=none
 dd if="$MLO" of="$DEVICE" bs=512 seek=768 conv=notrunc status=none
 
-# Kernel at sector 2048
+# Kernel at sector 2048 (also in unpartitioned gap)
 dd if="$KERNEL" of="$DEVICE" bs=512 seek=2048 conv=notrunc status=none
+
+# Mount FAT32 partition and copy initfs files (rootfs contents)
+MNT=$(mktemp -d)
+mount "$PART" "$MNT"
+if [ -d "$INITFS_DIR" ]; then
+    cp "$INITFS_DIR"/* "$MNT/" 2>/dev/null || true
+    echo "  Copied $(ls "$INITFS_DIR" | wc -l) file(s) from initfs/ to rootfs"
+fi
+sync
+umount "$MNT"
+rmdir "$MNT"
 
 sync
 echo -e "${GREEN}[2/3] Flash complete.${NC}"

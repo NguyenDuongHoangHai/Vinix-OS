@@ -20,10 +20,16 @@
  * ============================================================ */
 
 struct vfs_operations {
+    /* Read path */
     int (*lookup)(const char *name);
     int (*read)(int file_index, uint32_t offset, void *buf, uint32_t len);
     int (*get_file_count)(void);
     int (*get_file_info)(int index, char *name_out, uint32_t *size_out);
+
+    /* Write path — optional; NULL means filesystem is read-only */
+    int (*create)(const char *name);
+    int (*write)(int file_index, uint32_t offset, const void *buf, uint32_t len);
+    int (*truncate)(int file_index, uint32_t new_size);
 };
 
 /* ============================================================
@@ -60,13 +66,23 @@ int vfs_open(const char *path, int flags);
 
 /**
  * Read from file descriptor
- * 
+ *
  * @param fd File descriptor
  * @param buf Buffer to read into
  * @param len Number of bytes to read
  * @return Number of bytes read (>= 0), or negative error code
  */
 int vfs_read(int fd, void *buf, uint32_t len);
+
+/**
+ * Write to file descriptor
+ *
+ * @param fd File descriptor (must be opened with O_WRONLY or O_RDWR)
+ * @param buf Data to write
+ * @param len Number of bytes to write
+ * @return Number of bytes written (>= 0), or negative error code
+ */
+int vfs_write(int fd, const void *buf, uint32_t len);
 
 /**
  * Close file descriptor

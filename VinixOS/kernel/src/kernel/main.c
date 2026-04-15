@@ -14,7 +14,9 @@
 #include "mmu.h"
 #include "cpu.h"
 #include "vfs.h"
-#include "ramfs.h"
+#include "mmc.h"
+#include "mbr.h"
+#include "fat32.h"
 #include "syscalls.h"
 #include "types.h"
 #include "i2c.h"
@@ -74,17 +76,28 @@ void kernel_main(void)
     irq_init();
     uart_enable_rx_interrupt();
 
-    /* 1.6 Initialize VFS and mount RAMFS */
+    /* 1.6 Initialize VFS and mount FAT32 rootfs from SD card */
     uart_printf("[BOOT] Initializing Virtual File System...\n");
     vfs_init();
 
-    if (ramfs_init() != E_OK) {
-        uart_printf("[BOOT] ERROR: Failed to initialize RAMFS\n");
+    if (mmc_init() != E_OK) {
+        uart_printf("[BOOT] ERROR: MMC init failed\n");
         while (1);
     }
 
-    if (vfs_mount("/", ramfs_get_operations()) != E_OK) {
-        uart_printf("[BOOT] ERROR: Failed to mount RAMFS at /\n");
+    uint32_t part_lba;
+    if (mbr_find_fat32(&part_lba, NULL) != E_OK) {
+        uart_printf("[BOOT] ERROR: No FAT32 partition found on SD card\n");
+        while (1);
+    }
+
+    if (fat32_init(part_lba) != E_OK) {
+        uart_printf("[BOOT] ERROR: FAT32 init failed\n");
+        while (1);
+    }
+
+    if (vfs_mount("/", fat32_get_operations()) != E_OK) {
+        uart_printf("[BOOT] ERROR: Failed to mount FAT32 at /\n");
         while (1);
     }
 

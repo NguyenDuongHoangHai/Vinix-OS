@@ -17,6 +17,7 @@ void shell_puts(const char *s);
 
 #include "syscalls.h"
 #include "user_syscall.h"
+#include "string.h"
 
 /* ============================================================
  * Command Implementations
@@ -202,6 +203,50 @@ static int cmd_cat(int argc, char **argv)
     return 0;
 }
 
+static int cmd_write(int argc, char **argv)
+{
+    if (argc < 3)
+    {
+        printf("Usage: write <filename> <text...>\n");
+        printf("Example: write hello.txt Hello World\n");
+        return -1;
+    }
+
+    const char *filename = argv[1];
+
+    int fd = sys_open(filename, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0)
+    {
+        printf("Error opening '%s' for write: %d\n", filename, fd);
+        return -1;
+    }
+
+    int total_written = 0;
+    for (int i = 2; i < argc; i++)
+    {
+        if (i > 2)
+        {
+            sys_write_file(fd, " ", 1);
+            total_written += 1;
+        }
+        int n = sys_write_file(fd, argv[i], (uint32_t)strlen(argv[i]));
+        if (n < 0)
+        {
+            printf("Write failed: %d\n", n);
+            sys_close(fd);
+            return -1;
+        }
+        total_written += n;
+    }
+
+    sys_write_file(fd, "\n", 1);
+    total_written += 1;
+
+    sys_close(fd);
+    printf("Wrote %d bytes to %s\n", total_written, filename);
+    return 0;
+}
+
 static int cmd_exec(int argc, char **argv)
 {
     if (argc < 2)
@@ -237,6 +282,7 @@ const struct command cmd_table[] = {
     {"mem", cmd_mem, "mem", "Show memory usage"},
     {"ls", cmd_ls, "ls [path]", "List directory contents"},
     {"cat", cmd_cat, "cat <file>", "Display file contents"},
+    {"write", cmd_write, "write <file> <text>", "Write text to file (create/truncate)"},
     {"exec", cmd_exec, "exec <file>", "Execute binary file"},
     {"echo", cmd_echo, "echo [args]", "Echo arguments"},
     {"clear", cmd_clear, "clear", "Clear screen"},

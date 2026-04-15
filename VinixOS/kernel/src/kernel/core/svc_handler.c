@@ -485,6 +485,20 @@ static int32_t sys_read_file(struct svc_context *ctx)
     return vfs_read(fd, buf, len);
 }
 
+static int32_t sys_write_file(struct svc_context *ctx)
+{
+    int fd = (int)ctx->r0;
+    const void *buf = (const void *)ctx->r1;
+    uint32_t len = (uint32_t)ctx->r2;
+
+    if (validate_user_pointer(buf, len) != E_OK)
+    {
+        return E_PTR;
+    }
+
+    return vfs_write(fd, buf, len);
+}
+
 /* sys_close(int fd) */
 static int32_t sys_close(struct svc_context *ctx)
 {
@@ -684,6 +698,10 @@ void svc_handler(struct svc_context *ctx)
 
     case SYS_EXEC:
         result = sys_exec(ctx);
+        break;
+
+    case SYS_WRITE_FILE:
+        result = sys_write_file(ctx);
         break;
 
     default:
