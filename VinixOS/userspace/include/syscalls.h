@@ -17,6 +17,7 @@
 #define SYS_CLOSE 8
 #define SYS_LISTDIR 9
 #define SYS_EXEC 10
+#define SYS_WRITE_FILE 11
 
 /* ============================================================
  * Data Structures
@@ -61,8 +62,11 @@ typedef struct
 /* ============================================================
  * File Open Flags
  * ============================================================ */
-#define O_RDONLY 0 /* Read only */
-#define O_WRONLY 1 /* Write only (not supported) */
-#define O_RDWR 2   /* Read/Write (not supported) */
+#define O_RDONLY 0x00 /* Read only */
+#define O_WRONLY 0x01 /* Write only */
+#define O_RDWR   0x02 /* Read/Write */
+#define O_ACCMODE 0x03 /* Access mode mask */
+#define O_CREAT  0x04 /* Create file if missing */
+#define O_TRUNC  0x08 /* Truncate file to zero on open */
 
 #endif /* _SYSCALLS_H */

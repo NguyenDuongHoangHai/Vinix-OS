@@ -227,6 +227,27 @@ int sys_listdir(const char *path, void *entries, uint32_t max_entries)
 }
 
 /* ============================================================
+ * sys_write_file - Write to file descriptor
+ * ============================================================ */
+int sys_write_file(int fd, const void *buf, uint32_t len)
+{
+    int ret;
+
+    __asm__ __volatile__(
+        "mov    r7, #11\n\t"          /* SYS_WRITE_FILE = 11 */
+        "mov    r0, %1\n\t"           /* arg1 = fd */
+        "mov    r1, %2\n\t"           /* arg2 = buf */
+        "mov    r2, %3\n\t"           /* arg3 = len */
+        "svc    #0\n\t"               /* Trigger SVC */
+        "mov    %0, r0\n\t"           /* Save return value */
+        : "=r"(ret)                   /* Output: ret */
+        : "r"(fd), "r"(buf), "r"(len) /* Inputs */
+        : "r0", "r1", "r2", "r7", "memory");
+
+    return ret;
+}
+
+/* ============================================================
  * sys_exec - Replace current process image
  * ============================================================ */
 int sys_exec(const char *path)
