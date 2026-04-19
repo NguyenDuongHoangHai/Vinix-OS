@@ -254,6 +254,27 @@ static int cmd_pid(int argc, char **argv)
     return 0;
 }
 
+static int cmd_fork(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    int pid = sys_fork();
+    if (pid < 0) {
+        printf("fork failed: %d\n", pid);
+        return -1;
+    }
+    if (pid == 0) {
+        /* Child path: announce then exit so parent's wait() reaps. */
+        printf("[child] pid=%d ppid=%d — exiting\n", sys_getpid(), sys_getppid());
+        sys_exit(42);
+        return 0;  /* unreachable */
+    }
+    /* Parent: wait for child. */
+    int status = 0;
+    int w = sys_wait(&status);
+    printf("[parent] child pid=%d exited with status=%d\n", w, status);
+    return 0;
+}
+
 static int cmd_exec(int argc, char **argv)
 {
     if (argc < 2)
@@ -294,4 +315,5 @@ const struct command cmd_table[] = {
     {"echo", cmd_echo, "echo [args]", "Echo arguments"},
     {"clear", cmd_clear, "clear", "Clear screen"},
     {"pid", cmd_pid, "pid", "Print current pid + ppid"},
+    {"fork", cmd_fork, "fork", "Fork a child that exits immediately"},
     {NULL, NULL, NULL, NULL}};

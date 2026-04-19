@@ -83,4 +83,13 @@ void scheduler_yield(void);
  */
 struct task_struct *scheduler_current_task(void);
 
+/* Raw slot access for fork/wait; returns NULL on empty slot. */
+struct task_struct *tasks_array_get(uint32_t idx);
+
+/* Add a task that already carries its own ->id slot (used by fork). */
+int scheduler_add_forked(struct task_struct *task);
+
+/* Release a slot after wait() reaps a zombie. */
+void scheduler_release_slot(uint32_t idx);
+
 #endif /* SCHEDULER_H */

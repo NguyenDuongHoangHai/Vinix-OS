@@ -199,6 +199,19 @@ void mmu_install_page_table(uint32_t section_va, uint32_t *l2_table_va,
 /* Flush the entire TLB + DSB/ISB. Used after updating page tables. */
 void mmu_flush_tlb(void);
 
+/* Returns PA of the shared kernel L1 table (used when a task has no
+ * private pgd). */
+uint32_t mmu_kernel_pgd_pa(void);
+
+/* Switch TTBR0 to the given L1 table PA + flush the TLB. Caller must
+ * hold IRQs off and be sure the new pgd contains valid kernel
+ * mappings (mmu_new_pgd clones them). */
+void mmu_switch_pgd(uint32_t pgd_pa);
+
+/* Install a 1 MB user section entry in the given L1 table. */
+void mmu_install_user_section(uint32_t *pgd_va, uint32_t user_va,
+                               uint32_t user_pa);
+
 /* Allocate a fresh L1 page table for a new address space.
  *   - 16 KB aligned (order-2 page allocation)
  *   - kernel VA range (0xC0000000+) mirrors the current pgd

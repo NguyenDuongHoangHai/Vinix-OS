@@ -99,6 +99,7 @@ struct task_struct {
     int32_t             pid;         /* = scheduler slot index (0..4) */
     int32_t             ppid;        /* parent pid, -1 if none */
     int32_t             exit_status; /* exit(status) value, valid when ZOMBIE */
+    uint32_t            pgd_pa;      /* TTBR0 for this task */
 };
 
 /* ============================================================

@@ -14,6 +14,7 @@
 #include "mmu.h"
 #include "vfs.h"
 #include "string.h"
+#include "proc.h"
 
 #define ELF_MAGIC_0 0x7F
 #define ELF_MAGIC_1 'E'
@@ -286,10 +287,8 @@ static int32_t sys_exit(struct svc_context *ctx)
         return E_OK;
     }
 
-    /* Terminate specific task */
-    scheduler_terminate_task(current->id);
-
-    /* Scheduler should switch away, but if we return, it's an error flow */
+    /* Forked child: proper exit — zombie state + wake parent in wait(). */
+    do_exit(status);
     return 0;
 }
 
@@ -686,6 +685,25 @@ void svc_handler(struct svc_context *ctx)
     case SYS_GETPPID: {
         struct task_struct *t = scheduler_current_task();
         result = t ? t->ppid : -1;
+        break;
+    }
+
+    case SYS_FORK:
+        result = do_fork(ctx);
+        break;
+
+    case SYS_WAIT: {
+        int st = 0;
+        int pid = do_wait(&st);
+        if (pid >= 0 && ctx->r0 != 0)
+        {
+            int *user_status = (int *)ctx->r0;
+            if (validate_user_pointer(user_status, sizeof(int)) == E_OK)
+            {
+                *user_status = st;
+            }
+        }
+        result = pid;
         break;
     }
 

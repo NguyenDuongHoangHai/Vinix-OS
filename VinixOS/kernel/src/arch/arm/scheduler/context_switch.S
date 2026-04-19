@@ -50,7 +50,7 @@ context_switch:
      */
     dsb
     
-    /* 
+    /*
      * 3.5. CRITICAL: Save User Stack Pointer (SP_usr) AND Link Register (LR_usr)
      * Switch to System Mode (0x1F) to access SP_usr and LR_usr
      */
@@ -58,12 +58,31 @@ context_switch:
     add     r2, r0, #64         @ Point to context.sp_usr
     stmia   r2, {sp, lr}        @ Save SP_usr (r13) and LR_usr (r14)
     cps     #0x13               @ Switch back to SVC Mode
-    
+
+    /*
+     * 3.7. Switch TTBR0 to next->pgd_pa BEFORE loading next's SP.
+     * Offset 116 = struct task_struct::pgd_pa. If zero, skip (kept).
+     * Stack VAs on either side stay valid because prev's stack has
+     * already been written (SP saved) while prev's pgd was active,
+     * and next's stack is not touched until after TTBR0 flips.
+     */
+    ldr     r2, [r1, #116]
+    cmp     r2, #0
+    beq     1f
+    orr     r2, r2, #0x4A       @ Inner/Outer WB-WA + Shareable
+    mcr     p15, 0, r2, c2, c0, 0     @ TTBR0
+    dsb
+    mov     r3, #0
+    mcr     p15, 0, r3, c8, c7, 0     @ TLBIALL
+    dsb
+    isb
+1:
+
     /* ========================================
      * LOAD NEXT TASK
      * ======================================== */
-    
-    /* 
+
+    /*
      * 4. Load next task's SP (Kernel SP)
      * r1 contains next task pointer
      */

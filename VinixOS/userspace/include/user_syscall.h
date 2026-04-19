@@ -104,6 +104,8 @@ int sys_listdir(const char *path, void *entries, uint32_t max_entries);
  */
 int sys_exec(const char *path);
 
+int sys_fork(void);
+int sys_wait(int *status);
 int sys_getpid(void);
 int sys_getppid(void);
 

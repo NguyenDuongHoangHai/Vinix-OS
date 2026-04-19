@@ -177,6 +177,34 @@ void mmu_free_pgd(uint32_t pgd_pa)
     free_pages(pgd_pa, 2);
 }
 
+uint32_t mmu_kernel_pgd_pa(void)
+{
+    return (uint32_t)pgd - VA_OFFSET;
+}
+
+void mmu_switch_pgd(uint32_t pgd_pa)
+{
+    /* Same TTBR0 attributes as boot: Inner/Outer WB/WA + Shareable (0x4A). */
+    uint32_t ttbr0 = pgd_pa | 0x4A;
+
+    __asm__ __volatile__(
+        "mcr p15, 0, %0, c2, c0, 0\n\t"   /* TTBR0 */
+        "dsb\n\t"
+        "mov r0, #0\n\t"
+        "mcr p15, 0, r0, c8, c7, 0\n\t"   /* TLBIALL */
+        "dsb\n\t"
+        "isb\n\t"
+        :: "r" (ttbr0) : "r0", "memory");
+}
+
+void mmu_install_user_section(uint32_t *pgd_va, uint32_t user_va,
+                               uint32_t user_pa)
+{
+    uint32_t idx = user_va >> MMU_SECTION_SHIFT;
+    pgd_va[idx] = user_pa | MMU_SECT_USER_RAM;
+    __asm__ __volatile__("dsb\n\t" ::: "memory");
+}
+
 /* ============================================================
  * Phase A: Boot-time Page Table Builder
  * ============================================================

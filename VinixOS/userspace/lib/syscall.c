@@ -247,6 +247,29 @@ int sys_write_file(int fd, const void *buf, uint32_t len)
     return ret;
 }
 
+int sys_fork(void)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #12\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : : "r0", "r7", "memory");
+    return ret;
+}
+
+int sys_wait(int *status)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #13\n\t"
+        "mov    r0, %1\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : "r"(status) : "r0", "r7", "memory");
+    return ret;
+}
+
 int sys_getpid(void)
 {
     int ret;

@@ -7,6 +7,7 @@
 #include "scheduler.h"
 #include "task.h"
 #include "sleep.h"
+#include "mmu.h"
 #include "uart.h"
 #include "cpu.h"
 #include "string.h"
@@ -65,7 +66,8 @@ void scheduler_init(void)
      * Offsets `context.sp` and `context.sp_usr` must match definition in `task_struct`.
      */
     if (__builtin_offsetof(struct task_struct, context.sp) != 52 ||
-        __builtin_offsetof(struct task_struct, context.sp_usr) != 64) {
+        __builtin_offsetof(struct task_struct, context.sp_usr) != 64 ||
+        __builtin_offsetof(struct task_struct, pgd_pa) != 116) {
         PANIC("Struct alignment mismatch with Assembly!");
     }
     
@@ -100,6 +102,10 @@ int scheduler_add_task(struct task_struct *task)
     task->pid         = task_count;
     task->ppid        = -1;
     task->exit_status = 0;
+    if (task->pgd_pa == 0)
+    {
+        task->pgd_pa = mmu_kernel_pgd_pa();
+    }
     
     uart_printf("[SCHED] Added task %d: '%s'\n", 
                 task->id, task->name ? task->name : "(unnamed)");
@@ -348,6 +354,10 @@ void scheduler_yield(void)
     /* Update global scheduler state */
     current_task_index = next_index;
     current_task = next_task;
+
+    /* NOTE: TTBR0 switch happens inside context_switch() assembly, in
+     * between saving prev's SP and loading next's SP — otherwise the
+     * stack VA of either side can briefly map to the wrong pgd. */
     
     // uart_printf("[SCHED] Switching: %u (%s) -> %u (%s)\n",
     //             prev_task->id, prev_task->name,
@@ -403,6 +413,35 @@ void scheduler_yield(void)
 struct task_struct *scheduler_current_task(void)
 {
     return current_task;
+}
+
+struct task_struct *tasks_array_get(uint32_t idx)
+{
+    if (idx >= MAX_TASKS) return 0;
+    return tasks[idx];
+}
+
+int scheduler_add_forked(struct task_struct *task)
+{
+    uint32_t slot = task->id;
+    if (slot >= MAX_TASKS || tasks[slot] != 0)
+    {
+        return -1;
+    }
+    tasks[slot] = task;
+    task->state = TASK_STATE_READY;
+    task_count++;
+    return (int)slot;
+}
+
+void scheduler_release_slot(uint32_t idx)
+{
+    if (idx >= MAX_TASKS) return;
+    if (tasks[idx] != 0)
+    {
+        tasks[idx] = 0;
+        if (task_count > 0) task_count--;
+    }
 }
 
 /**

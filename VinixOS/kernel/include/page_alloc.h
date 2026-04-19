@@ -18,8 +18,9 @@ typedef uint32_t gfp_t;
 #define PAGE_SIZE   (1u << PAGE_SHIFT)
 #define PAGE_MASK   (~(PAGE_SIZE - 1u))
 
-/* Order N = 2^N contiguous pages. MVP supports 0..3 (up to 32 KB). */
-#define PAGE_MAX_ORDER  3
+/* Order N = 2^N contiguous pages. Up to 1 MB so fork() can allocate a
+ * user address space in one call (256 pages, naturally aligned). */
+#define PAGE_MAX_ORDER  8
 
 void page_alloc_init(void);
 void page_alloc_selftest(void);
