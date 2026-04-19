@@ -6,7 +6,7 @@ MAKEFLAGS += --no-print-directory
 
 # init is embedded in the kernel as the PID 1 payload; everything
 # else lives on the FAT32 rootfs and is exec'd on demand.
-APPS = init shell uname hello ls cat echo ps kill cp sleep pwd free
+APPS = init shell uname hello ls cat echo ps kill pwd free
 
 .PHONY: all lib apps clean help $(addprefix build-, $(APPS))
 
