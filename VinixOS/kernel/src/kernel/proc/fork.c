@@ -13,19 +13,6 @@
 #include "uart.h"
 #include "types.h"
 
-extern struct task_struct *tasks_array_get(uint32_t idx);  /* from scheduler.c */
-extern int scheduler_add_forked(struct task_struct *task); /* slot-aware add */
-
-/* Minimal svc_context mirror (must stay in sync with svc_handler.c). */
-struct svc_context
-{
-    uint32_t spsr;
-    uint32_t pad;
-    uint32_t r0, r1, r2, r3, r4, r5, r6;
-    uint32_t r7, r8, r9, r10, r11, r12;
-    uint32_t lr;
-};
-
 extern void svc_exit_trampoline(void);
 
 #define USER_MEM_PAGES_ORDER  8             /* 2^8 = 256 pages = 1 MB */
@@ -167,6 +154,12 @@ int do_fork(struct svc_context *parent_ctx)
     child->kstack_pa    = kstack_pa;
     child->kstack_order = KSTACK_PAGES_ORDER;
     child->name         = "forked";
+
+    /* Inherit fd table by value — no offset/flag sharing between processes. */
+    for (uint32_t i = 0; i < MAX_FDS; i++)
+    {
+        child->files[i] = parent->files[i];
+    }
 
     scheduler_add_forked(child);
     uart_printf("[FORK] parent pid=%d -> child pid=%d (user_pa=0x%x pgd=0x%x)\n",

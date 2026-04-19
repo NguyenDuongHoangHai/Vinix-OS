@@ -15,6 +15,14 @@
 #define MAX_FDS         16      /* Maximum open file descriptors */
 #define MAX_PATH        256     /* Maximum path length */
 
+/* Per-process file-descriptor entry. Lives in task_struct.files[]. */
+struct vfs_fd {
+    bool     in_use;
+    uint32_t file_index;
+    uint32_t offset;
+    int      flags;
+};
+
 /* ============================================================
  * VFS Operations Structure
  * ============================================================ */

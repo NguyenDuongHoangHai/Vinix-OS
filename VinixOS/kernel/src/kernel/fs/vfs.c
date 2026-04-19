@@ -9,22 +9,22 @@
 #include "uart.h"
 #include "string.h"
 #include "types.h"
+#include "task.h"
+#include "scheduler.h"
 
 /* Forward declaration */
 static struct vfs_operations *vfs_find_fs(const char *path);
 
-/* ============================================================
- * File Descriptor Table
- * ============================================================ */
+/* Per-task fd table lives in task_struct.files[]. Fallback to a single
+ * bootstrap table for the brief window before the scheduler starts
+ * returning a non-NULL current. */
+static struct vfs_fd boot_fd_table[MAX_FDS];
 
-struct vfs_fd {
-    bool     in_use;        /* FD allocated? */
-    uint32_t file_index;    /* Index into underlying fs file table */
-    uint32_t offset;        /* Current read/write position */
-    int      flags;         /* Open flags (O_RDONLY, O_WRONLY, O_RDWR, ...) */
-};
-
-static struct vfs_fd fd_table[MAX_FDS];
+static struct vfs_fd *current_fds(void)
+{
+    struct task_struct *t = scheduler_current_task();
+    return t ? t->files : boot_fd_table;
+}
 
 /* ============================================================
  * VFS Mount Table
@@ -46,22 +46,20 @@ static struct vfs_mount mount_table[MAX_MOUNTS];
 void vfs_init(void)
 {
     uart_printf("[VFS] Initializing Virtual File System...\n");
-    
-    /* Initialize FD table */
+
     for (int i = 0; i < MAX_FDS; i++) {
-        fd_table[i].in_use = false;
-        fd_table[i].file_index = 0;
-        fd_table[i].offset = 0;
-        fd_table[i].flags = 0;
+        boot_fd_table[i].in_use = false;
+        boot_fd_table[i].file_index = 0;
+        boot_fd_table[i].offset = 0;
+        boot_fd_table[i].flags = 0;
     }
-    
-    /* Initialize mount table */
+
     for (int i = 0; i < MAX_MOUNTS; i++) {
         mount_table[i].mount_point = NULL;
         mount_table[i].fs_ops = NULL;
         mount_table[i].in_use = false;
     }
-    
+
     uart_printf("[VFS] Initialization complete\n");
 }
 
@@ -157,10 +155,12 @@ int vfs_open(const char *path, int flags)
         }
     }
 
+    struct vfs_fd *fds = current_fds();
+
     /* FDs 0-2 reserved for stdin/stdout/stderr */
     int fd = -1;
     for (int i = 3; i < MAX_FDS; i++) {
-        if (!fd_table[i].in_use) {
+        if (!fds[i].in_use) {
             fd = i;
             break;
         }
@@ -170,10 +170,10 @@ int vfs_open(const char *path, int flags)
         return E_MFILE;
     }
 
-    fd_table[fd].in_use = true;
-    fd_table[fd].file_index = file_index;
-    fd_table[fd].offset = 0;
-    fd_table[fd].flags = flags;
+    fds[fd].in_use = true;
+    fds[fd].file_index = file_index;
+    fds[fd].offset = 0;
+    fds[fd].flags = flags;
 
     return fd;
 }
@@ -183,39 +183,38 @@ int vfs_open(const char *path, int flags)
  */
 int vfs_read(int fd, void *buf, uint32_t len)
 {
-    /* Validate FD */
-    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].in_use) {
+    struct vfs_fd *fds = current_fds();
+    if (fd < 0 || fd >= MAX_FDS || !fds[fd].in_use) {
         return E_BADF;
     }
-    
-    /* Find filesystem (assume root for now) */
+
     struct vfs_operations *fs_ops = vfs_find_fs("/");
     if (!fs_ops) {
         return E_FAIL;
     }
-    
-    /* Read from filesystem */
+
     int bytes_read = fs_ops->read(
-        fd_table[fd].file_index,
-        fd_table[fd].offset,
+        fds[fd].file_index,
+        fds[fd].offset,
         buf,
         len
     );
-    
+
     if (bytes_read > 0) {
-        fd_table[fd].offset += bytes_read;
+        fds[fd].offset += bytes_read;
     }
-    
+
     return bytes_read;
 }
 
 int vfs_write(int fd, const void *buf, uint32_t len)
 {
-    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].in_use) {
+    struct vfs_fd *fds = current_fds();
+    if (fd < 0 || fd >= MAX_FDS || !fds[fd].in_use) {
         return E_BADF;
     }
 
-    int access = fd_table[fd].flags & O_ACCMODE;
+    int access = fds[fd].flags & O_ACCMODE;
     if (access != O_WRONLY && access != O_RDWR) {
         return E_PERM;
     }
@@ -226,35 +225,30 @@ int vfs_write(int fd, const void *buf, uint32_t len)
     }
 
     int bytes_written = fs_ops->write(
-        fd_table[fd].file_index,
-        fd_table[fd].offset,
+        fds[fd].file_index,
+        fds[fd].offset,
         buf,
         len
     );
 
     if (bytes_written > 0) {
-        fd_table[fd].offset += bytes_written;
+        fds[fd].offset += bytes_written;
     }
 
     return bytes_written;
 }
 
-/**
- * Close file descriptor
- */
 int vfs_close(int fd)
 {
-    /* Validate FD */
-    if (fd < 0 || fd >= MAX_FDS || !fd_table[fd].in_use) {
+    struct vfs_fd *fds = current_fds();
+    if (fd < 0 || fd >= MAX_FDS || !fds[fd].in_use) {
         return E_BADF;
     }
-    
-    /* Free FD */
-    fd_table[fd].in_use = false;
-    fd_table[fd].file_index = 0;
-    fd_table[fd].offset = 0;
-    fd_table[fd].flags = 0;
 
+    fds[fd].in_use = false;
+    fds[fd].file_index = 0;
+    fds[fd].offset = 0;
+    fds[fd].flags = 0;
     return E_OK;
 }
 

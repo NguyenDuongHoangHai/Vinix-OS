@@ -15,77 +15,10 @@
 #include "vfs.h"
 #include "string.h"
 #include "proc.h"
-
-#define ELF_MAGIC_0 0x7F
-#define ELF_MAGIC_1 'E'
-#define ELF_MAGIC_2 'L'
-#define ELF_MAGIC_3 'F'
-
-#define ELFCLASS32 1
-#define ELFDATA2LSB 1
-#define ET_EXEC 2
-#define EM_ARM 40
-#define EV_CURRENT 1
-#define PT_LOAD 1
-
-#define EXEC_READ_CHUNK 128
+#include "svc_context.h"
 
 extern uint8_t _shell_payload_start;
 extern uint8_t _shell_payload_end;
-
-typedef struct
-{
-    uint8_t e_ident[16];
-    uint16_t e_type;
-    uint16_t e_machine;
-    uint32_t e_version;
-    uint32_t e_entry;
-    uint32_t e_phoff;
-    uint32_t e_shoff;
-    uint32_t e_flags;
-    uint16_t e_ehsize;
-    uint16_t e_phentsize;
-    uint16_t e_phnum;
-    uint16_t e_shentsize;
-    uint16_t e_shnum;
-    uint16_t e_shstrndx;
-} elf32_ehdr_t;
-
-typedef struct
-{
-    uint32_t p_type;
-    uint32_t p_offset;
-    uint32_t p_vaddr;
-    uint32_t p_paddr;
-    uint32_t p_filesz;
-    uint32_t p_memsz;
-    uint32_t p_flags;
-    uint32_t p_align;
-} elf32_phdr_t;
-
-/*
- * SVC Context Structure (AAPCS Aligned)
- * Matches the stack layout pushed by exception_entry_svc
- */
-struct svc_context
-{
-    uint32_t spsr; /* Saved Program Status Register */
-    uint32_t pad;  /* Padding for 8-byte alignment */
-    uint32_t r0;
-    uint32_t r1;
-    uint32_t r2;
-    uint32_t r3;
-    uint32_t r4;
-    uint32_t r5;
-    uint32_t r6;
-    uint32_t r7;
-    uint32_t r8;
-    uint32_t r9;
-    uint32_t r10;
-    uint32_t r11;
-    uint32_t r12;
-    uint32_t lr; /* LR_svc - Points to instruction AFTER svc */
-};
 
 /*
  * Validation boundaries
@@ -120,81 +53,6 @@ static int validate_user_pointer(const void *ptr, uint32_t len)
     }
 
     return E_PTR;
-}
-
-static int vfs_read_exact(int fd, void *buf, uint32_t len)
-{
-    uint8_t *dst = (uint8_t *)buf;
-    uint32_t total = 0;
-
-    while (total < len)
-    {
-        int n = vfs_read(fd, dst + total, len - total);
-        if (n <= 0)
-        {
-            return E_FAIL;
-        }
-        total += (uint32_t)n;
-    }
-
-    return E_OK;
-}
-
-static int vfs_skip_bytes(int fd, uint32_t len)
-{
-    uint8_t tmp[EXEC_READ_CHUNK];
-    uint32_t left = len;
-
-    while (left > 0)
-    {
-        uint32_t chunk = (left > EXEC_READ_CHUNK) ? EXEC_READ_CHUNK : left;
-        int n = vfs_read(fd, tmp, chunk);
-        if (n <= 0)
-        {
-            return E_FAIL;
-        }
-        left -= (uint32_t)n;
-    }
-
-    return E_OK;
-}
-
-static int validate_elf_header(const elf32_ehdr_t *hdr)
-{
-    if (hdr->e_ident[0] != ELF_MAGIC_0 ||
-        hdr->e_ident[1] != ELF_MAGIC_1 ||
-        hdr->e_ident[2] != ELF_MAGIC_2 ||
-        hdr->e_ident[3] != ELF_MAGIC_3)
-    {
-        return E_ARG;
-    }
-
-    if (hdr->e_ident[4] != ELFCLASS32 || hdr->e_ident[5] != ELFDATA2LSB)
-    {
-        return E_ARG;
-    }
-
-    if (hdr->e_type != ET_EXEC || hdr->e_machine != EM_ARM || hdr->e_version != EV_CURRENT)
-    {
-        return E_ARG;
-    }
-
-    if (hdr->e_phentsize != sizeof(elf32_phdr_t) || hdr->e_phnum == 0)
-    {
-        return E_ARG;
-    }
-
-    if (hdr->e_phoff != sizeof(elf32_ehdr_t))
-    {
-        return E_ARG;
-    }
-
-    if (validate_user_pointer((void *)hdr->e_entry, 4) != E_OK)
-    {
-        return E_PTR;
-    }
-
-    return E_OK;
 }
 
 /* ============================================================
@@ -508,97 +366,12 @@ static int32_t sys_listdir(struct svc_context *ctx)
 static int32_t sys_exec(struct svc_context *ctx)
 {
     const char *path = (const char *)ctx->r0;
-    elf32_ehdr_t ehdr;
-    elf32_phdr_t phdr;
-    int fd;
 
-    if (validate_user_pointer(path, MAX_PATH) != E_OK)
-    {
+    if (validate_user_pointer(path, MAX_PATH) != E_OK) {
         return E_PTR;
     }
 
-    fd = vfs_open(path, O_RDONLY);
-    if (fd < 0)
-    {
-        return fd;
-    }
-
-    if (vfs_read_exact(fd, &ehdr, sizeof(ehdr)) != E_OK)
-    {
-        vfs_close(fd);
-        return E_FAIL;
-    }
-
-    int hdr_ok = validate_elf_header(&ehdr);
-    if (hdr_ok != E_OK)
-    {
-        vfs_close(fd);
-        return hdr_ok;
-    }
-
-    for (uint32_t i = 0; i < ehdr.e_phnum; i++)
-    {
-        if (vfs_read_exact(fd, &phdr, sizeof(phdr)) != E_OK)
-        {
-            vfs_close(fd);
-            return E_FAIL;
-        }
-
-        if (phdr.p_type != PT_LOAD)
-        {
-            continue;
-        }
-
-        if (phdr.p_filesz > phdr.p_memsz)
-        {
-            vfs_close(fd);
-            return E_ARG;
-        }
-
-        if (validate_user_pointer((void *)phdr.p_vaddr, phdr.p_memsz) != E_OK)
-        {
-            vfs_close(fd);
-            return E_PTR;
-        }
-
-        int seg_fd = vfs_open(path, O_RDONLY);
-        if (seg_fd < 0)
-        {
-            vfs_close(fd);
-            return seg_fd;
-        }
-
-        if (vfs_skip_bytes(seg_fd, phdr.p_offset) != E_OK)
-        {
-            vfs_close(seg_fd);
-            vfs_close(fd);
-            return E_FAIL;
-        }
-
-        if (vfs_read_exact(seg_fd, (void *)phdr.p_vaddr, phdr.p_filesz) != E_OK)
-        {
-            vfs_close(seg_fd);
-            vfs_close(fd);
-            return E_FAIL;
-        }
-
-        vfs_close(seg_fd);
-
-        if (phdr.p_memsz > phdr.p_filesz)
-        {
-            memset((void *)(phdr.p_vaddr + phdr.p_filesz), 0, phdr.p_memsz - phdr.p_filesz);
-        }
-    }
-
-    vfs_close(fd);
-
-    ctx->r0 = 0;
-    ctx->r1 = 0;
-    ctx->r2 = 0;
-    ctx->r3 = 0;
-    ctx->lr = ehdr.e_entry;
-
-    return E_OK;
+    return do_exec(path, ctx);
 }
 
 /* ============================================================

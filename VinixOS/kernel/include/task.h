@@ -9,6 +9,7 @@
 #define TASK_H
 
 #include "types.h"
+#include "vfs.h"
 
 /* ============================================================
  * Task Context Structure
@@ -107,6 +108,10 @@ struct task_struct {
     uint32_t            user_order;
     uint32_t            kstack_pa;
     uint32_t            kstack_order;
+
+    /* Per-process file-descriptor table. Boot tasks zero-init in BSS;
+     * fork copies parent's table by value — no shared offset/refcount. */
+    struct vfs_fd       files[MAX_FDS];
 };
 
 /* ============================================================
