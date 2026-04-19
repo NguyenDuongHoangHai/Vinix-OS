@@ -44,10 +44,9 @@ void page_alloc_init(void)
     }
     free_count = POOL_PAGES;
 
-    uart_printf("[PAGE] Pool: PA 0x%x - 0x%x (%d MB, %d pages)\n",
-                POOL_PA_BASE, POOL_PA_END - 1u,
-                POOL_SIZE / (1024u * 1024u), POOL_PAGES);
-    uart_printf("[PAGE] Bitmap: %d bytes\n", BITMAP_WORDS * 4u);
+    uart_printf("[PAGE] Pool: %d MB @ PA 0x%x (%d pages, bitmap %dB)\n",
+                POOL_SIZE / (1024u * 1024u), POOL_PA_BASE,
+                POOL_PAGES, BITMAP_WORDS * 4u);
 }
 
 uint32_t alloc_pages(gfp_t gfp, unsigned int order)
@@ -121,8 +120,6 @@ void page_alloc_selftest(void)
     uint32_t snapshot = free_count;
     uint32_t pages[SELFTEST_ORDER0_N];
 
-    uart_printf("[PAGE] Self-test: begin (free=%d)\n", free_count);
-
     for (int i = 0; i < SELFTEST_ORDER0_N; i++)
     {
         pages[i] = alloc_pages(GFP_KERNEL, 0);
@@ -153,7 +150,6 @@ void page_alloc_selftest(void)
             }
         }
     }
-    uart_printf("[PAGE] Self-test: 100 x 4KB distinct + aligned + in-pool OK\n");
 
     for (int i = 0; i < SELFTEST_ORDER0_N; i++)
     {
@@ -161,11 +157,10 @@ void page_alloc_selftest(void)
     }
     if (free_count != snapshot)
     {
-        uart_printf("[PAGE] FAIL: free_count %d != snapshot %d after free\n",
+        uart_printf("[PAGE] FAIL: free_count %d != snapshot %d after order-0 free\n",
                     free_count, snapshot);
         return;
     }
-    uart_printf("[PAGE] Self-test: free 100 pages OK (free=%d)\n", free_count);
 
     uint32_t big = alloc_pages(GFP_KERNEL, PAGE_MAX_ORDER);
     if (big == 0)
@@ -179,9 +174,6 @@ void page_alloc_selftest(void)
                     PAGE_MAX_ORDER, big, SELFTEST_ORDER3_MASK + 1u);
         return;
     }
-    uart_printf("[PAGE] Self-test: order-%d (%d KB) PA 0x%x aligned OK\n",
-                PAGE_MAX_ORDER, (1u << PAGE_MAX_ORDER) * 4u, big);
-
     free_pages(big, PAGE_MAX_ORDER);
     if (free_count != snapshot)
     {
@@ -190,5 +182,6 @@ void page_alloc_selftest(void)
         return;
     }
 
-    uart_printf("[PAGE] PASS (total %d pages, all free)\n", free_count);
+    uart_printf("[PAGE] Self-test PASS (100x4KB + order-3, %d pages free)\n",
+                free_count);
 }

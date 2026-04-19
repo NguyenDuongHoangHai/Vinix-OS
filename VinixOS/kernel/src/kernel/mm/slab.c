@@ -173,7 +173,7 @@ void slab_init(void)
         kmalloc_caches[i] = kmem_cache_create("kmalloc", kmalloc_sizes[i]);
         ASSERT(kmalloc_caches[i] != NULL);
     }
-    uart_printf("[SLAB] kmalloc classes: 32/64/128/256/512/1024/2048 ready\n");
+    uart_printf("[SLAB] kmalloc classes 32..2048 ready\n");
 }
 
 /* ============================================================
@@ -182,8 +182,6 @@ void slab_init(void)
 
 void slab_selftest(void)
 {
-    uart_printf("[SLAB] Self-test: begin\n");
-
     struct kmem_cache *c = kmem_cache_create("test64", 64);
     if (c == NULL)
     {
@@ -210,7 +208,6 @@ void slab_selftest(void)
             }
         }
     }
-    uart_printf("[SLAB] Self-test: 10 x 64B distinct OK\n");
 
     for (int i = 0; i < 10; i++)
     {
@@ -233,7 +230,6 @@ void slab_selftest(void)
         return;
     }
     kmem_cache_free(c, reuse);
-    uart_printf("[SLAB] Self-test: free + realloc reuse OK\n");
 
     void *a = kmalloc(16, GFP_KERNEL);
     void *b = kmalloc(100, GFP_KERNEL);
@@ -254,7 +250,6 @@ void slab_selftest(void)
     kfree(a);
     kfree(b);
     kfree(d);
-    uart_printf("[SLAB] Self-test: kmalloc(16/100/1000) OK, kmalloc(3000)=NULL OK\n");
 
-    uart_printf("[SLAB] PASS\n");
+    uart_printf("[SLAB] Self-test PASS (alloc/free/reuse + kmalloc dispatch)\n");
 }

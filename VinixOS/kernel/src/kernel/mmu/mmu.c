@@ -15,6 +15,7 @@
  * ============================================================ */
 
 #include "mmu.h"
+#include "page_alloc.h"
 #include "uart.h"
 #include "types.h"
 
@@ -126,6 +127,54 @@ void mmu_install_page_table(uint32_t section_va, uint32_t *l2_table_va,
 
     __asm__ __volatile__("dsb\n\t" ::: "memory");
     mmu_flush_tlb();
+}
+
+/* Kernel-space start index: sections >= this mirror the current pgd. */
+#define PGD_KERNEL_START_IDX  (KERNEL_VA_BASE >> MMU_SECTION_SHIFT)
+
+uint32_t mmu_new_pgd(void)
+{
+    /* Order-2 = 4 pages = 16 KB, which is also the TTBR alignment. */
+    uint32_t pa = alloc_pages(GFP_KERNEL, 2);
+    if (pa == 0)
+    {
+        return 0;
+    }
+
+    uint32_t *new_pgd = (uint32_t *)(pa + VA_OFFSET);
+
+    for (uint32_t i = 0; i < PGD_KERNEL_START_IDX; i++)
+    {
+        new_pgd[i] = 0;
+    }
+    for (uint32_t i = PGD_KERNEL_START_IDX; i < MMU_L1_ENTRIES; i++)
+    {
+        new_pgd[i] = pgd[i];
+    }
+
+    /* Peripheral + framebuffer identity entries sit in user VA range
+     * but must remain accessible from kernel mode after a TTBR switch. */
+    uint32_t wkup_idx = PERIPH_L4_WKUP_PA >> MMU_SECTION_SHIFT;
+    new_pgd[wkup_idx] = pgd[wkup_idx];
+
+    for (uint32_t i = 0; i < PERIPH_L4_PER_SECTIONS; i++)
+    {
+        uint32_t idx = (PERIPH_L4_PER_PA >> MMU_SECTION_SHIFT) + i;
+        new_pgd[idx] = pgd[idx];
+    }
+
+    for (uint32_t i = 0; i < FB_SECTIONS; i++)
+    {
+        uint32_t idx = (FB_PA_BASE >> MMU_SECTION_SHIFT) + i;
+        new_pgd[idx] = pgd[idx];
+    }
+
+    return pa;
+}
+
+void mmu_free_pgd(uint32_t pgd_pa)
+{
+    free_pages(pgd_pa, 2);
 }
 
 /* ============================================================

@@ -199,4 +199,17 @@ void mmu_install_page_table(uint32_t section_va, uint32_t *l2_table_va,
 /* Flush the entire TLB + DSB/ISB. Used after updating page tables. */
 void mmu_flush_tlb(void);
 
+/* Allocate a fresh L1 page table for a new address space.
+ *   - 16 KB aligned (order-2 page allocation)
+ *   - kernel VA range (0xC0000000+) mirrors the current pgd
+ *   - peripheral + framebuffer identity entries copied so kernel-mode
+ *     code still reaches I/O after a TTBR switch
+ *   - user VA range (below 0xC0000000) left as Faults; caller fills
+ *     user mappings when loading an ELF / forking
+ * Returns PA of new pgd, or 0 on OOM. */
+uint32_t mmu_new_pgd(void);
+
+/* Release an L1 page table previously returned by mmu_new_pgd. */
+void mmu_free_pgd(uint32_t pgd_pa);
+
 #endif /* MMU_H */
