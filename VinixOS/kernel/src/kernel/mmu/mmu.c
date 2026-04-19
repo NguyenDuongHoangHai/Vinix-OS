@@ -89,6 +89,8 @@ void mmu_init(void)
                 USER_SPACE_VA, USER_SPACE_PA, USER_SPACE_MB);
     uart_printf("[MMU] Kernel DDR:  VA 0x%x -> PA 0x%x (%d MB) [Cached, Kernel-only]\n",
                 KERNEL_DDR_VA, KERNEL_DDR_PA, KERNEL_DDR_MB);
+    uart_printf("[MMU] Page Pool:   VA 0x%x -> PA 0x%x (%d MB) [Cached, Kernel-only]\n",
+                POOL_KERNEL_VA_BASE, POOL_KERNEL_PA_BASE, POOL_KERNEL_MB);
     uart_printf("[MMU] Peripheral L4_WKUP: PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
                 PERIPH_L4_WKUP_PA, PERIPH_L4_WKUP_SECTIONS);
     uart_printf("[MMU] Peripheral L4_PER:  PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
@@ -192,6 +194,14 @@ mmu_build_page_table_boot(uint32_t *pgd_pa)
     {
         pa = KERNEL_DDR_PA + (i * MMU_SECTION_SIZE);
         va_idx = (KERNEL_DDR_VA + (i * MMU_SECTION_SIZE)) >> MMU_SECTION_SHIFT;
+        pgd_pa[va_idx] = pa | MMU_SECT_KERNEL_RAM;
+    }
+
+    /* Page pool: VA 0xC1000000 -> PA 0x81000000 (112 MB, Kernel-only) */
+    for (i = 0; i < POOL_KERNEL_MB; i++)
+    {
+        pa = POOL_KERNEL_PA_BASE + (i * MMU_SECTION_SIZE);
+        va_idx = (POOL_KERNEL_VA_BASE + (i * MMU_SECTION_SIZE)) >> MMU_SECTION_SHIFT;
         pgd_pa[va_idx] = pa | MMU_SECT_KERNEL_RAM;
     }
 

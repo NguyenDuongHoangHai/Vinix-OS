@@ -127,6 +127,12 @@
 #define KERNEL_DDR_PA DDR_PA_BASE
 #define KERNEL_DDR_MB 5
 
+/* Page pool kernel-VA window.
+ * PA 0x81000000..0x87FFFFFF (112 MB) reachable at VA 0xC1000000. */
+#define POOL_KERNEL_VA_BASE  0xC1000000
+#define POOL_KERNEL_PA_BASE  0x81000000
+#define POOL_KERNEL_MB       112
+
 /* User App DDR: Starts after Kernel (Memory pool)
  * PA 0x80500000 -> VA 0x40000000 (1MB for User App) */
 #define USER_SPACE_PA (DDR_PA_BASE + (KERNEL_DDR_MB * MMU_SECTION_SIZE))
