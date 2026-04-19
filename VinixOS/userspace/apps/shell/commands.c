@@ -275,6 +275,52 @@ static int cmd_fork(int argc, char **argv)
     return 0;
 }
 
+static int cmd_kill(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Usage: kill <pid>\n");
+        return -1;
+    }
+    int pid = 0;
+    for (const char *p = argv[1]; *p >= '0' && *p <= '9'; p++) {
+        pid = pid * 10 + (*p - '0');
+    }
+    int r = sys_kill(pid, SIGKILL);
+    if (r < 0) {
+        printf("kill %d: cannot kill (slot empty, self, or protected)\n", pid);
+        return -1;
+    }
+    /* Reap if the target was one of our children. */
+    int status = 0;
+    int w = sys_wait(&status);
+    if (w >= 0) {
+        printf("reaped pid=%d status=%d\n", w, status);
+    }
+    return 0;
+}
+
+static int cmd_crash(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    int pid = sys_fork();
+    if (pid < 0) {
+        printf("fork failed: %d\n", pid);
+        return -1;
+    }
+    if (pid == 0) {
+        /* Child crashes with NULL dereference — parent must survive. */
+        printf("[child] pid=%d about to NULL-deref...\n", sys_getpid());
+        volatile int *p = (volatile int *)0;
+        *p = 0xdead;
+        sys_exit(0);  /* unreachable */
+        return 0;
+    }
+    int status = 0;
+    int w = sys_wait(&status);
+    printf("[parent] child pid=%d died with status=%d (139 = SIGSEGV)\n", w, status);
+    return 0;
+}
+
 static int cmd_exec(int argc, char **argv)
 {
     if (argc < 2)
@@ -316,4 +362,6 @@ const struct command cmd_table[] = {
     {"clear", cmd_clear, "clear", "Clear screen"},
     {"pid", cmd_pid, "pid", "Print current pid + ppid"},
     {"fork", cmd_fork, "fork", "Fork a child that exits immediately"},
+    {"kill", cmd_kill, "kill <pid>", "Kill a running task by pid"},
+    {"crash", cmd_crash, "crash", "Fork a child that NULL-derefs (demo isolation)"},
     {NULL, NULL, NULL, NULL}};

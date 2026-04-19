@@ -9,6 +9,10 @@
 #include "scheduler.h"
 #include "task.h"
 #include "assert.h"
+#include "proc.h"
+
+/* SIGSEGV exit code — parent sees 139 = 128 + 11 from wait(). */
+#define FAULT_EXIT_SIGSEGV  139
 
 /* ============================================================
  * Helper Functions
@@ -173,28 +177,18 @@ void handle_prefetch_abort(struct exception_context *ctx)
     /* FAULT CONTAINMENT LOGIC */
     if ((ctx->spsr & 0x1F) == 0x10)
     {
-        /* User Mode Fault */
         struct task_struct *current = scheduler_current_task();
-        uart_printf("\n[FAULT] User Mode Prefetch Abort DETECTED!\n");
-        uart_printf("[FAULT] Offending Task: %d ('%s')\n",
+        uart_printf("[FAULT] User prefetch abort: task %d ('%s') — SIGSEGV\n",
                     current ? current->id : -1,
                     current ? current->name : "???");
+        if (!current) PANIC("User fault with no current task");
 
-        uart_printf("[FAULT] Action: Terminating Task...\n");
-
-        if (current)
-        {
-            scheduler_terminate_task(current->id);
-        }
-        else
-        {
-            PANIC("User Fault processing failed (No Current Task)");
-        }
-
+        /* Switch to SVC before calling C kernel paths that touch task state. */
+        __asm__ volatile ("cps #0x13");
+        do_exit(FAULT_EXIT_SIGSEGV);
         return;
     }
 
-    /* Kernel Mode Fault - PANIC */
     uart_printf("[FAULT] KERNEL PANIC: Prefetch Abort in Privileged Mode!\n");
     halt_kernel();
 }
@@ -280,29 +274,18 @@ void handle_data_abort(struct exception_context *ctx)
     /* FAULT CONTAINMENT LOGIC */
     if ((ctx->spsr & 0x1F) == 0x10)
     {
-        /* User Mode Fault */
         struct task_struct *current = scheduler_current_task();
-        uart_printf("\n[FAULT] User Mode Data Abort DETECTED!\n");
-        uart_printf("[FAULT] Offending Task: %d ('%s')\n",
+        uart_printf("[FAULT] User data abort at PC=0x%08x DFAR=0x%08x: task %d ('%s') — SIGSEGV\n",
+                    ctx->lr, dfar,
                     current ? current->id : -1,
                     current ? current->name : "???");
+        if (!current) PANIC("User fault with no current task");
 
-        uart_printf("[FAULT] Action: Terminating Task...\n");
-
-        if (current)
-        {
-            scheduler_terminate_task(current->id);
-        }
-        else
-        {
-            PANIC("User Fault processing failed (No Current Task)");
-        }
-
-        /* Execution will resume in scheduler loop after termination */
+        __asm__ volatile ("cps #0x13");
+        do_exit(FAULT_EXIT_SIGSEGV);
         return;
     }
 
-    /* Kernel Mode Fault - PANIC */
     uart_printf("[FAULT] KERNEL PANIC: Data Abort in Privileged Mode!\n");
     halt_kernel();
 }

@@ -292,6 +292,19 @@ int sys_getppid(void)
     return ret;
 }
 
+int sys_kill(int pid, int sig)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #16\n\t"
+        "mov    r0, %1\n\t"
+        "mov    r1, %2\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : "r"(pid), "r"(sig) : "r0", "r1", "r7");
+    return ret;
+}
+
 /* ============================================================
  * sys_exec - Replace current process image
  * ============================================================ */

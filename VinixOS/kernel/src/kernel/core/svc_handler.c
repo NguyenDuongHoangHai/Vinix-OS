@@ -692,6 +692,15 @@ void svc_handler(struct svc_context *ctx)
         result = do_fork(ctx);
         break;
 
+    case SYS_KILL: {
+        int pid = (int)ctx->r0;
+        int sig = (int)ctx->r1;
+        /* MVP: any kill delivers SIGKILL. Exit status = 128 + sig for POSIX feel. */
+        int exit_code = (sig > 0) ? (128 + sig) : 137;  /* 137 = 128 + 9 */
+        result = do_kill_by_pid(pid, exit_code);
+        break;
+    }
+
     case SYS_WAIT: {
         int st = 0;
         int pid = do_wait(&st);

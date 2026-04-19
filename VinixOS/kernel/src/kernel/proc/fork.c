@@ -156,13 +156,17 @@ int do_fork(struct svc_context *parent_ctx)
     child->context.lr_usr = parent_lr_usr;
 
     /* Process identity + state. */
-    child->id          = (uint32_t)slot;
-    child->pid         = slot;
-    child->ppid        = parent->pid;
-    child->exit_status = 0;
-    child->state       = TASK_STATE_READY;
-    child->pgd_pa      = pgd_pa;
-    child->name        = "forked";
+    child->id           = (uint32_t)slot;
+    child->pid          = slot;
+    child->ppid         = parent->pid;
+    child->exit_status  = 0;
+    child->state        = TASK_STATE_READY;
+    child->pgd_pa       = pgd_pa;
+    child->user_pa      = user_pa;
+    child->user_order   = USER_MEM_PAGES_ORDER;
+    child->kstack_pa    = kstack_pa;
+    child->kstack_order = KSTACK_PAGES_ORDER;
+    child->name         = "forked";
 
     scheduler_add_forked(child);
     uart_printf("[FORK] parent pid=%d -> child pid=%d (user_pa=0x%x pgd=0x%x)\n",

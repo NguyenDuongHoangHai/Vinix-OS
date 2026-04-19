@@ -73,17 +73,27 @@ int do_wait(int *status_out)
             int pid = t->pid;
             int st  = t->exit_status;
 
-            /* Release resources allocated in do_fork. */
-            if (t->pgd_pa != 0 && t->pgd_pa != mmu_kernel_pgd_pa())
-            {
-                mmu_free_pgd(t->pgd_pa);
-            }
-            /* Note: user memory + kernel stack tracked separately — leak
-             * for now. Proper bookkeeping needs a per-task resource list,
-             * deferred to a follow-up batch. */
+            uint32_t pgd_pa       = t->pgd_pa;
+            uint32_t user_pa      = t->user_pa;
+            uint32_t user_order   = t->user_order;
+            uint32_t kstack_pa    = t->kstack_pa;
+            uint32_t kstack_order = t->kstack_order;
 
             scheduler_release_slot(i);
             kfree(t);
+
+            if (pgd_pa != 0 && pgd_pa != mmu_kernel_pgd_pa())
+            {
+                mmu_free_pgd(pgd_pa);
+            }
+            if (user_pa != 0)
+            {
+                free_pages(user_pa, user_order);
+            }
+            if (kstack_pa != 0)
+            {
+                free_pages(kstack_pa, kstack_order);
+            }
 
             if (status_out != 0) *status_out = st;
             return pid;
@@ -91,4 +101,37 @@ int do_wait(int *status_out)
     }
 
     return -1;
+}
+
+int do_kill_by_pid(int pid, int exit_status)
+{
+    struct task_struct *me = scheduler_current_task();
+    if (pid < 0 || (uint32_t)pid >= MAX_TASKS)
+    {
+        return -1;
+    }
+    if (me != 0 && me->pid == pid)
+    {
+        return -1;
+    }
+
+    struct task_struct *t = tasks_array_get((uint32_t)pid);
+    if (t == 0 || t->ppid < 0)
+    {
+        /* Untouchable: idle (ppid=-1) and the shell container. */
+        return -1;
+    }
+    if (t->state == TASK_STATE_ZOMBIE)
+    {
+        return 0;
+    }
+
+    t->exit_status = exit_status;
+    t->state       = TASK_STATE_ZOMBIE;
+
+    while (parent_wq.head != 0)
+    {
+        wake_up(&parent_wq);
+    }
+    return 0;
 }

@@ -22,6 +22,7 @@
 #define SYS_WAIT 13
 #define SYS_GETPID 14
 #define SYS_GETPPID 15
+#define SYS_KILL 16
 
 /* ============================================================
  * Data Structures

@@ -100,6 +100,13 @@ struct task_struct {
     int32_t             ppid;        /* parent pid, -1 if none */
     int32_t             exit_status; /* exit(status) value, valid when ZOMBIE */
     uint32_t            pgd_pa;      /* TTBR0 for this task */
+
+    /* Pages owned by this task — released by do_wait reaper.
+     * Zero = not owned (idle/shell use static allocations). */
+    uint32_t            user_pa;
+    uint32_t            user_order;
+    uint32_t            kstack_pa;
+    uint32_t            kstack_order;
 };
 
 /* ============================================================

@@ -108,5 +108,9 @@ int sys_fork(void);
 int sys_wait(int *status);
 int sys_getpid(void);
 int sys_getppid(void);
+int sys_kill(int pid, int sig);
+
+#define SIGKILL  9
+#define SIGSEGV 11
 
 #endif /* _USER_SYSCALL_H */
