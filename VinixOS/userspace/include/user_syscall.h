@@ -100,9 +100,10 @@ int sys_listdir(const char *path, void *entries, uint32_t max_entries);
 /*
  * Replace current process image with executable at path
  * path: Executable file path (ELF32 ARM)
+ * argv: NULL-terminated array of C strings, or NULL for no args
  * Returns: Does not return on success, negative error code on failure
  */
-int sys_exec(const char *path);
+int sys_exec(const char *path, char **argv);
 
 int sys_fork(void);
 int sys_wait(int *status);

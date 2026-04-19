@@ -22,6 +22,12 @@ _start:
     /* Kernel already sets SP for this task
      * We don't need to initialize the stack pointer here */
 
+    /* Stash kernel-provided argc/argv before BSS clear — the
+     * clear loop re-uses r0/r1 as the iterator+end and would
+     * otherwise trample the very values main expects. */
+    mov r4, r0
+    mov r5, r1
+
     /* 1. Clear BSS */
     ldr r0, =_bss_start
     ldr r1, =_bss_end
@@ -33,12 +39,12 @@ _start:
     b 1b
 2:
 
-    /* 2. Zero argc/argv before calling main — kernel doesn't
-     * ship argv on the initial stack yet. Programs that need
-     * command-line args see argc == 0 and print usage instead
-     * of dereferencing garbage from whatever r0/r1 held. */
-    mov r0, #0
-    mov r1, #0
+    /* 2. Restore argc/argv and call main().
+     *   - Initial tasks: task_stack_init zeros r0/r1
+     *   - exec'd tasks: do_exec writes argc into r0 and a user-VA
+     *     argv pointer into r1 before the SVC return. */
+    mov r0, r4
+    mov r1, r5
     bl main
 
     /* 3. Call sys_exit(status)

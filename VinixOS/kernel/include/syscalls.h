@@ -26,6 +26,8 @@
 #define SYS_DUP 17
 #define SYS_DUP2 18
 #define SYS_DEVLIST 19
+#define SYS_UNLINK  20
+#define SYS_RENAME  21
 
 /* ============================================================
  * Data Structures

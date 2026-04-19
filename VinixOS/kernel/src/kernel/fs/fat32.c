@@ -980,6 +980,77 @@ static int fat32_truncate(int file_index, uint32_t new_size)
     return update_dir_entry(f);
 }
 
+/* Free file's cluster chain, mark dir entry deleted, drop from
+ * file_table. Refuses directories — FAT32 MVP has no subdir write. */
+static int fat32_unlink(const char *path)
+{
+    struct fat32_resolve r;
+    int rc = resolve_path(path, &r);
+    if (rc != E_OK) return rc;
+    if (r.is_dir) return E_PERM;
+
+    if (r.cluster >= 2) {
+        int fr = fat_free_chain(r.cluster);
+        if (fr != E_OK) return fr;
+    }
+
+    struct buffer_head *bh = bread(fs_bdev, r.entry_lba);
+    if (!bh) return E_FAIL;
+    bh->data[r.entry_off + DIR_Name] = DIR_ENTRY_DELETED;
+    bmark_dirty(bh);
+    brelse(bh);
+
+    for (int i = 0; i < file_count; i++) {
+        if (file_table[i].in_use &&
+            file_table[i].dir_entry_lba    == r.entry_lba &&
+            file_table[i].dir_entry_offset == r.entry_off) {
+            file_table[i].in_use = false;
+            break;
+        }
+    }
+    return E_OK;
+}
+
+/* Rename within the same directory — overwrite the name / NTRes
+ * fields of the existing dir entry. Cross-directory mv would need
+ * entry allocation in the destination plus deletion of the source;
+ * kept for a later iteration. */
+static int fat32_rename(const char *old_path, const char *new_path)
+{
+    struct fat32_resolve src;
+    int rc = resolve_path(old_path, &src);
+    if (rc != E_OK) return rc;
+    if (src.is_dir) return E_PERM;
+
+    /* Reject if destination already exists so we never silently
+     * clobber. */
+    struct fat32_resolve dst_check;
+    if (resolve_path(new_path, &dst_check) == E_OK) return E_PERM;
+
+    uint8_t new_raw[11];
+    name_to_raw(new_path, new_raw);
+    uint8_t new_nt_res = detect_nt_res(new_path);
+
+    struct buffer_head *bh = bread(fs_bdev, src.entry_lba);
+    if (!bh) return E_FAIL;
+    for (int i = 0; i < 11; i++) bh->data[src.entry_off + DIR_Name + i] = new_raw[i];
+    bh->data[src.entry_off + DIR_NTRes] = new_nt_res;
+    bmark_dirty(bh);
+    brelse(bh);
+
+    for (int i = 0; i < file_count; i++) {
+        if (file_table[i].in_use &&
+            file_table[i].dir_entry_lba    == src.entry_lba &&
+            file_table[i].dir_entry_offset == src.entry_off) {
+            for (int k = 0; k < 11; k++) file_table[i].raw_name[k] = new_raw[k];
+            file_table[i].nt_res = new_nt_res;
+            raw_to_name(new_raw, new_nt_res, file_table[i].name);
+            break;
+        }
+    }
+    return E_OK;
+}
+
 static struct vfs_operations fat32_ops = {
     .lookup         = fat32_lookup,
     .read           = fat32_read,
@@ -988,7 +1059,9 @@ static struct vfs_operations fat32_ops = {
     .listdir        = fat32_listdir,
     .create         = fat32_create,
     .write          = fat32_write,
-    .truncate       = fat32_truncate
+    .truncate       = fat32_truncate,
+    .unlink         = fat32_unlink,
+    .rename         = fat32_rename,
 };
 
 struct vfs_operations *fat32_get_operations(void)

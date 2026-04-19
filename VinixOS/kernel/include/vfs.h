@@ -46,6 +46,8 @@ struct vfs_operations {
     int (*create)(const char *name);
     int (*write)(int file_index, uint32_t offset, const void *buf, uint32_t len);
     int (*truncate)(int file_index, uint32_t new_size);
+    int (*unlink)(const char *name);
+    int (*rename)(const char *old_name, const char *new_name);
 };
 
 /* ============================================================
@@ -113,6 +115,9 @@ int vfs_dup(int oldfd);
 
 /* Point newfd at the same underlying file as oldfd, closing newfd first. */
 int vfs_dup2(int oldfd, int newfd);
+
+int vfs_unlink(const char *path);
+int vfs_rename(const char *old_path, const char *new_path);
 
 /**
  * List directory contents

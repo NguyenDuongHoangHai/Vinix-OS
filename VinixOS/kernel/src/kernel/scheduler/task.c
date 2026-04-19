@@ -65,13 +65,13 @@ void task_stack_init(struct task_struct *task,
     /* 1.1. Push LR (Entry Point) */
     *--stack_ptr = (uint32_t)entry_point;
     
-    /* 1.2. Push R0-R12 (User Registers) */
-    /* 
-     * Push in REVERSE order (R12 -> R0) so that R0 is at TOS (Low Address).
-     * LDMIA loads: [SP]->R0, [SP+4]->R1 ...
-     */
+    /* 1.2. Push R0-R12 (User Registers).
+     * R0/R1 are the argc/argv slot — zero them so crt0 can feed them
+     * straight into main(argc, argv) without a BSS-leak cleanup.
+     * Other registers keep the 0x0BAD pattern as a debug marker. */
     for (int i = 12; i >= 0; i--) {
-        *--stack_ptr = 0x0BAD0000 | i; /* Pattern: 0BAD0000, 0BAD0001... */
+        uint32_t val = (i <= 1) ? 0 : (0x0BAD0000 | i);
+        *--stack_ptr = val;
     }
     
     /* 1.3. Push Padding (Alignment) */

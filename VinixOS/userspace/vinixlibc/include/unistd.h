@@ -37,6 +37,7 @@ int     pipe(int pipefd[2]);
 int     mkdir(const char *path, int mode);
 int     rmdir(const char *path);
 int     unlink(const char *path);
+int     rename(const char *oldp, const char *newp);
 int     chdir(const char *path);
 char   *getcwd(char *buf, size_t size);
 int     access(const char *path, int mode);

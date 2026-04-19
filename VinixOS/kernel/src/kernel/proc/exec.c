@@ -112,11 +112,90 @@ static int validate_header(const elf32_ehdr_t *h)
     return E_OK;
 }
 
-int do_exec(const char *path, struct svc_context *ctx)
+/* argv staging area — top of user space, above initial SP so the
+ * user stack never collides with it. See userspace linker layout.
+ *   [USER_ARGV_AREA_VA .. USER_STACK_BASE) = 512 bytes reserved:
+ *     argv[] pointer array (≤16 entries × 4 B)  — first 64 bytes
+ *     argument strings packed tail-to-head      — remaining 448 B
+ */
+#define USER_ARGV_MAX      16u
+#define USER_ARGV_AREA_SZ  512u
+#define USER_ARGV_AREA_VA  (USER_SPACE_VA + USER_SPACE_MB * 1024u * 1024u - USER_ARGV_AREA_SZ)
+#define USER_ARGV_STRS_SZ  (USER_ARGV_AREA_SZ - USER_ARGV_MAX * sizeof(char *))
+
+/* Snapshot argv strings into a kernel buffer before the ELF load
+ * wipes user memory. Returns argc (0..USER_ARGV_MAX) or E_* on bad
+ * pointers. kbuf must be at least USER_ARGV_STRS_SZ bytes. */
+static int snapshot_argv(char **argv_user, char *kbuf, uint16_t *arg_offsets)
+{
+    if (!argv_user) return 0;
+    if (!in_user_space((uint32_t)argv_user, sizeof(char *) * USER_ARGV_MAX))
+        return E_PTR;
+
+    uint32_t argc = 0;
+    uint32_t pos  = 0;
+
+    while (argc < USER_ARGV_MAX) {
+        char *s = argv_user[argc];
+        if (!s) break;
+        if (!in_user_space((uint32_t)s, 1)) return E_PTR;
+
+        arg_offsets[argc] = (uint16_t)pos;
+        /* Copy the string, bounded by kbuf size. */
+        while (*s) {
+            if (!in_user_space((uint32_t)s, 1)) return E_PTR;
+            if (pos + 1 >= USER_ARGV_STRS_SZ) return E_ARG;  /* too long */
+            kbuf[pos++] = *s++;
+        }
+        kbuf[pos++] = '\0';
+        argc++;
+    }
+    return (int)argc;
+}
+
+/* After ELF load, write argv back into the fresh user memory at the
+ * top-of-space argv area. Sets ctx->r0 = argc, ctx->r1 = user VA of
+ * the argv[] array. */
+static void install_argv(struct svc_context *ctx, int argc,
+                         const char *kbuf, const uint16_t *arg_offsets,
+                         uint32_t snap_pos)
+{
+    if (argc <= 0) {
+        ctx->r0 = 0;
+        ctx->r1 = 0;
+        return;
+    }
+
+    char **argv_arr = (char **)USER_ARGV_AREA_VA;
+    char  *strs     = (char *)(USER_ARGV_AREA_VA + USER_ARGV_MAX * sizeof(char *));
+
+    memcpy(strs, kbuf, snap_pos);
+    for (int i = 0; i < argc; i++) {
+        argv_arr[i] = strs + arg_offsets[i];
+    }
+    argv_arr[argc] = 0;  /* NULL terminator */
+
+    ctx->r0 = (uint32_t)argc;
+    ctx->r1 = (uint32_t)argv_arr;
+}
+
+int do_exec(const char *path, struct svc_context *ctx, char **argv_user)
 {
     elf32_ehdr_t ehdr;
     elf32_phdr_t phdr;
     int fd;
+
+    /* Snapshot argv before we trample user memory. */
+    char     argv_kbuf[USER_ARGV_STRS_SZ];
+    uint16_t arg_offsets[USER_ARGV_MAX];
+    int argc = snapshot_argv(argv_user, argv_kbuf, arg_offsets);
+    if (argc < 0) return argc;
+    uint32_t snap_pos = 0;
+    for (int i = 0; i < argc; i++) {
+        snap_pos = arg_offsets[i];
+        while (argv_kbuf[snap_pos]) snap_pos++;
+        snap_pos++;  /* past null terminator */
+    }
 
     fd = vfs_open(path, O_RDONLY);
     if (fd < 0) return fd;
@@ -171,9 +250,7 @@ int do_exec(const char *path, struct svc_context *ctx)
 
     vfs_close(fd);
 
-    /* Hand control to the new image on SVC return. */
-    ctx->r0 = 0;
-    ctx->r1 = 0;
+    install_argv(ctx, argc, argv_kbuf, arg_offsets, snap_pos);
     ctx->r2 = 0;
     ctx->r3 = 0;
     ctx->lr = ehdr.e_entry;

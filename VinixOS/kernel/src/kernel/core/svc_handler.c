@@ -365,12 +365,14 @@ static int32_t sys_listdir(struct svc_context *ctx)
 static int32_t sys_exec(struct svc_context *ctx)
 {
     const char *path = (const char *)ctx->r0;
+    char **argv = (char **)ctx->r1;  /* NULL-terminated, or NULL */
 
     if (validate_user_pointer(path, MAX_PATH) != E_OK) {
         return E_PTR;
     }
+    /* argv itself is validated inside do_exec (it may be NULL). */
 
-    return do_exec(path, ctx);
+    return do_exec(path, ctx, argv);
 }
 
 /* ============================================================
@@ -466,6 +468,22 @@ void svc_handler(struct svc_context *ctx)
 
     case SYS_DUP: {
         result = vfs_dup((int)ctx->r0);
+        break;
+    }
+
+    case SYS_UNLINK: {
+        const char *path = (const char *)ctx->r0;
+        if (validate_user_pointer(path, MAX_PATH) != E_OK) { result = E_PTR; break; }
+        result = vfs_unlink(path);
+        break;
+    }
+
+    case SYS_RENAME: {
+        const char *old_p = (const char *)ctx->r0;
+        const char *new_p = (const char *)ctx->r1;
+        if (validate_user_pointer(old_p, MAX_PATH) != E_OK ||
+            validate_user_pointer(new_p, MAX_PATH) != E_OK) { result = E_PTR; break; }
+        result = vfs_rename(old_p, new_p);
         break;
     }
 

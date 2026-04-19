@@ -251,6 +251,26 @@ int vfs_dup2(int oldfd, int newfd)
     return newfd;
 }
 
+int vfs_unlink(const char *path)
+{
+    const char *rest;
+    struct vfs_operations *fs_ops = resolve(path, &rest);
+    if (!fs_ops || !fs_ops->unlink) return E_PERM;
+    return fs_ops->unlink(rest);
+}
+
+int vfs_rename(const char *old_path, const char *new_path)
+{
+    const char *old_rest;
+    const char *new_rest;
+    struct vfs_operations *old_fs = resolve(old_path, &old_rest);
+    struct vfs_operations *new_fs = resolve(new_path, &new_rest);
+    if (!old_fs || !new_fs) return E_NOENT;
+    if (old_fs != new_fs) return E_PERM;  /* cross-mount rename not supported */
+    if (!old_fs->rename) return E_PERM;
+    return old_fs->rename(old_rest, new_rest);
+}
+
 int vfs_listdir(const char *path, void *entries, uint32_t max_entries)
 {
     const char *rest;

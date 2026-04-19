@@ -233,7 +233,16 @@ static int execute_command(char *line)
     if (child_pid < 0) {
         printf("fork failed: %d\n", child_pid);
     } else if (child_pid == 0) {
-        int er = sys_exec(cmd);
+        /* Stage a NULL-terminated argv on the child's stack. The kernel
+         * snapshots these pointers/strings before overwriting user
+         * memory with the new ELF. */
+        char *child_argv[SHELL_MAX_ARGS + 1];
+        for (int i = 0; i < stripped_argc && i < SHELL_MAX_ARGS; i++) {
+            child_argv[i] = args[i];
+        }
+        child_argv[stripped_argc] = 0;
+
+        int er = sys_exec(cmd, child_argv);
         printf("'%s': exec failed (%d) — not a built-in, not a file\n",
                cmd, er);
         sys_exit(127);

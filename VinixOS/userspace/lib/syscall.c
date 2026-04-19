@@ -344,21 +344,21 @@ int sys_devlist(void *buf, uint32_t max_count)
 }
 
 /* ============================================================
- * sys_exec - Replace current process image
+ * sys_exec - Replace current process image. argv may be NULL.
  * ============================================================ */
-int sys_exec(const char *path)
+int sys_exec(const char *path, char **argv)
 {
     int ret;
 
     __asm__ __volatile__(
         "mov    r7, #10\n\t" /* SYS_EXEC = 10 */
         "mov    r0, %1\n\t"  /* arg1 = path */
-        "mov    r1, #0\n\t"  /* arg2 = 0 */
-        "mov    r2, #0\n\t"  /* arg3 = 0 */
-        "svc    #0\n\t"      /* Trigger SVC */
-        "mov    %0, r0\n\t"  /* Save return value */
+        "mov    r1, %2\n\t"  /* arg2 = argv */
+        "mov    r2, #0\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
         : "=r"(ret)
-        : "r"(path)
+        : "r"(path), "r"(argv)
         : "r0", "r1", "r2", "r7", "memory");
 
     return ret;

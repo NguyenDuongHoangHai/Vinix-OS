@@ -369,7 +369,7 @@ static int cmd_exec(int argc, char **argv)
 
     printf("Executing '%s'...\n", filename);
 
-    int ret = sys_exec(filename);
+    int ret = sys_exec(filename, 0);
     if (ret < 0)
     {
         printf("exec failed for '%s': %d\n", filename, ret);

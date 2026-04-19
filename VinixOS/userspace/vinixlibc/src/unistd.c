@@ -79,8 +79,8 @@ pid_t fork(void)
 
 int execve(const char *path, char *const argv[], char *const envp[])
 {
-    (void)argv; (void)envp;  /* MVP: kernel loads ELF as-is. */
-    int rc = sys_exec(path);
+    (void)envp;
+    int rc = sys_exec(path, (char **)argv);
     /* sys_exec returns only on failure. */
     return set_errno_from(rc);
 }
@@ -145,9 +145,33 @@ int usleep(unsigned int microseconds)
 int pipe(int pipefd[2])     { (void)pipefd; errno = EINVAL; return -1; }
 int mkdir(const char *p, int m) { (void)p; (void)m; errno = EINVAL; return -1; }
 int rmdir(const char *p)    { (void)p; errno = EINVAL; return -1; }
-int unlink(const char *p)   { (void)p; errno = EINVAL; return -1; }
 int chdir(const char *p)    { (void)p; errno = EINVAL; return -1; }
 int access(const char *p, int mode) { (void)p; (void)mode; errno = EINVAL; return -1; }
+
+int unlink(const char *path)
+{
+    int rc;
+    __asm__ __volatile__(
+        "mov r7, #20\n\t"       /* SYS_UNLINK */
+        "mov r0, %1\n\t"
+        "svc #0\n\t"
+        "mov %0, r0\n\t"
+        : "=r"(rc) : "r"(path) : "r0", "r7", "memory");
+    return set_errno_from(rc);
+}
+
+int rename(const char *oldp, const char *newp)
+{
+    int rc;
+    __asm__ __volatile__(
+        "mov r7, #21\n\t"       /* SYS_RENAME */
+        "mov r0, %1\n\t"
+        "mov r1, %2\n\t"
+        "svc #0\n\t"
+        "mov %0, r0\n\t"
+        : "=r"(rc) : "r"(oldp), "r"(newp) : "r0", "r1", "r7", "memory");
+    return set_errno_from(rc);
+}
 
 char *getcwd(char *buf, size_t size)
 {
