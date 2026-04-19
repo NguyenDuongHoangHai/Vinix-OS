@@ -153,6 +153,22 @@
 #define BOOT_IDENTITY_MB DDR_SIZE_MB /* 128MB temporary */
 
 /* ============================================================
+ * L2 Small-Page Descriptor (4 KB page)
+ * ============================================================
+ *
+ * 31..12 11 10  9  8..6 5..4  3 2 1 0
+ * [PA  ] nG  S AP2 TEX  AP10  C B 1 XN
+ *
+ * Kernel RW cached WB/WA shareable: PA | 0x45E */
+#define MMU_L2_SMALL_PAGE_TYPE   0x2        /* bit 1 = 1 */
+#define MMU_L2_SMALL_KERN_RW     (MMU_L2_SMALL_PAGE_TYPE \
+                                  | (0x1 << 4)           /* AP[1:0]=01 */ \
+                                  | (0x1 << 6)           /* TEX=001   */ \
+                                  | (1 << 3)             /* C         */ \
+                                  | (1 << 2)             /* B         */ \
+                                  | (1 << 10))           /* S         */
+
+/* ============================================================
  * Public API
  * ============================================================ */
 
@@ -165,5 +181,16 @@
  * After this function returns, the kernel runs at VA 0xC0xxxxxx.
  */
 void mmu_init(void);
+
+/* Install an L1 page-table descriptor at the 1 MB section covering
+ * section_va. The section must not currently hold a Section mapping
+ * that is in use — caller owns the range.
+ *
+ * l2_table_va must be 1 KB aligned (256 entries * 4 bytes). */
+void mmu_install_page_table(uint32_t section_va, uint32_t *l2_table_va,
+                             uint32_t domain);
+
+/* Flush the entire TLB + DSB/ISB. Used after updating page tables. */
+void mmu_flush_tlb(void);
 
 #endif /* MMU_H */

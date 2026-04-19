@@ -12,6 +12,7 @@
 #include "irq.h"
 #include "intc.h"
 #include "mmu.h"
+#include "mmu_lab.h"
 #include "cpu.h"
 #include "vfs.h"
 #include "mmc.h"
@@ -58,6 +59,9 @@ void kernel_main(void)
      * MMU was already enabled by entry.S (Phase A trampoline).
      * We are now running at VA 0xC0xxxxxx. */
     mmu_init();
+
+    /* MMU lab — validates L2 page-table path before P1 relies on it. */
+    mmu_lab_run();
 
     /* Graphics subsystem: pixel clock must be running before TDA can output TMDS.
      * Unlike QNX (where U-Boot already started LCDC), we're bare-metal —

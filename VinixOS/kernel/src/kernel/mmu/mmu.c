@@ -102,6 +102,31 @@ void mmu_init(void)
 }
 
 /* ============================================================
+ * L2 page-table installation (runtime, high VA)
+ * ============================================================ */
+
+void mmu_flush_tlb(void)
+{
+    __asm__ __volatile__(
+        "mov r0, #0\n\t"
+        "mcr p15, 0, r0, c8, c7, 0\n\t"   /* TLBIALL */
+        "dsb\n\t"
+        "isb\n\t" ::: "r0", "memory");
+}
+
+void mmu_install_page_table(uint32_t section_va, uint32_t *l2_table_va,
+                             uint32_t domain)
+{
+    uint32_t l2_pa = (uint32_t)l2_table_va - VA_OFFSET;
+    uint32_t idx   = section_va >> MMU_SECTION_SHIFT;
+
+    pgd[idx] = (l2_pa & 0xFFFFFC00) | ((domain & 0xF) << 5) | 0x01;
+
+    __asm__ __volatile__("dsb\n\t" ::: "memory");
+    mmu_flush_tlb();
+}
+
+/* ============================================================
  * Phase A: Boot-time Page Table Builder
  * ============================================================
  * Called from entry.S at PA, BEFORE MMU enable.
