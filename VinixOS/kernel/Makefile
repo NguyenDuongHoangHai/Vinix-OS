@@ -30,7 +30,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                i2c.o lcdc.o tda19988.o fb.o boot_screen.o \
                scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o string.o \
                mmc.o mbr.o fat32.o \
-               mmu_lab.o \
+               mmu_lab.o page_alloc.o slab.o \
                platform_memmap.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
@@ -151,6 +151,13 @@ $(BUILD_DIR)/mmu.o: $(SRC)/kernel/mmu/mmu.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/mmu_lab.o: $(SRC)/kernel/mmu/mmu_lab.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# C files - Memory Manager
+$(BUILD_DIR)/page_alloc.o: $(SRC)/kernel/mm/page_alloc.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/slab.o: $(SRC)/kernel/mm/slab.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - Platform (BBB)

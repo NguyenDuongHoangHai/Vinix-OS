@@ -13,6 +13,8 @@
 #include "intc.h"
 #include "mmu.h"
 #include "mmu_lab.h"
+#include "page_alloc.h"
+#include "slab.h"
 #include "cpu.h"
 #include "vfs.h"
 #include "mmc.h"
@@ -62,6 +64,12 @@ void kernel_main(void)
 
     /* MMU lab — validates L2 page-table path before P1 relies on it. */
     mmu_lab_run();
+
+    page_alloc_init();
+    page_alloc_selftest();
+
+    slab_init();
+    slab_selftest();
 
     /* Graphics subsystem: pixel clock must be running before TDA can output TMDS.
      * Unlike QNX (where U-Boot already started LCDC), we're bare-metal —
