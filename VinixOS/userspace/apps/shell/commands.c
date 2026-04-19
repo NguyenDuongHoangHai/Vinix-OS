@@ -360,8 +360,8 @@ static int cmd_exec(int argc, char **argv)
 {
     if (argc < 2)
     {
-        printf("Usage: exec <filename>\n");
-        printf("Example: exec hello_simple\n");
+        printf("Usage: exec <path>\n");
+        printf("Example: exec /bin/ls\n");
         return -1;
     }
 

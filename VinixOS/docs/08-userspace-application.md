@@ -1,7 +1,7 @@
 # 08 - Userspace Application
 
 > **Phạm vi:** Môi trường userspace — runtime startup, linker script, syscall wrappers, shell application, và privilege separation giữa User Mode và Kernel Mode.
-> **Yêu cầu trước:** [06-syscall-mechanism.md](06-syscall-mechanism.md), [07-filesystem-vfs-ramfs.md](07-filesystem-vfs-ramfs.md)
+> **Yêu cầu trước:** [06-syscall-mechanism.md](06-syscall-mechanism.md)
 > **Files liên quan:** `userspace/lib/crt0.S`, `userspace/linker/app.ld`, `userspace/lib/syscall.c`, `userspace/apps/shell/`
 
 ---
@@ -368,6 +368,5 @@ graph TD
 ## Xem Thêm
 
 - [06-syscall-mechanism.md](06-syscall-mechanism.md) — kernel-side implementation của từng syscall
-- [07-filesystem-vfs-ramfs.md](07-filesystem-vfs-ramfs.md) — VFS/RAMFS mà shell sử dụng
 - [05-task-and-scheduler.md](05-task-and-scheduler.md) — shell chạy như một task trong scheduler
 - [03-memory-and-mmu.md](03-memory-and-mmu.md) — memory layout và permission bits

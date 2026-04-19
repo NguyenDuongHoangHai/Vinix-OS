@@ -2,7 +2,7 @@
 
 **Bare-metal operating system + cross-compiler cho ARMv7-A, chạy trên phần cứng thật (BeagleBone Black).**
 
-Được phát triển bởi **Vinalinux** như một reference platform để học và hiểu toàn bộ software stack từ power-on đến running compiled programs — không dùng Linux, không dùng existing OS, không có emulation.
+Được phát triển bởi **Vinalinux** như một reference platform 100% tự viết — kernel, libc, userspace, compiler. Không dựa trên Linux/Unix/BSD; không fork/port upstream; không emulator. Mọi dòng code trong repo đều tự tay gõ, hiểu, chịu trách nhiệm.
 
 ---
 
@@ -45,12 +45,19 @@ Project gồm 2 components chính:
 
 | Subsystem | Chi Tiết |
 |-----------|---------|
-| **MMU** | Virtual memory 3G/1G split: User `0x40000000`, Kernel `0xC0000000` |
-| **Exception Handling** | 7 exception types, INTC 128 IRQ sources, vector table tại VA |
-| **Scheduler** | Preemptive round-robin, 10ms tick (DMTimer2), context switch ARM assembly |
-| **System Calls** | 11 syscalls qua SVC instruction, AAPCS-compliant, pointer validation |
-| **VFS + RAMFS** | Virtual filesystem abstraction, in-memory read-only FS, build-time embedding |
-| **HDMI Display** | 800×600 RGB565, TDA19988 HDMI transmitter qua I2C, framebuffer API |
+| **HAL 4 lớp** | `kernel/` generic · `arch/arm/` ARMv7 CPU · `platform/bbb/` AM3358 board · `drivers/` device impls |
+| **MMU** | 3G/1G split: User VA `0x40000000` (1 MB, per-process L2 + TTBR0), Kernel VA `0xC0000000` (L1 section) |
+| **Memory** | Bitmap page allocator (112 MB pool), slab (`kmem_cache_*`), `kmalloc(GFP_KERNEL)`, VMM (`mm_struct`, `vm_area_struct`) |
+| **Concurrency** | `spinlock_t` (LDREX/STREX), `atomic_t`, `wait_queue_head_t`, `wait_event`/`wake_up`, blocking I/O |
+| **Exception** | 7 types, INTC 128 IRQ, DFSR/DFAR decode, user fault → SIGSEGV (kernel sống), kernel fault → PANIC dump |
+| **Scheduler** | Preemptive round-robin, 10 ms tick (DMTimer2), MAX_TASKS = 5, context switch ARM asm + TTBR0 swap |
+| **Process** | `fork`/`exec`/`wait`/`exit`/`kill`, ELF loader, per-process fd table, `task_struct`, `current` |
+| **Syscalls** | 22 syscall qua SVC, AAPCS ABI, `copy_from/to_user`, negative errno |
+| **VFS** | Multi-FS: FAT32 rootfs (subdir/unlink/rename) + devfs (`/dev/tty`, `/dev/null`) + procfs (`/proc/...`) |
+| **Block** | `block_device` abstraction, LRU buffer cache 64×512 B write-back |
+| **Driver model** | Linux-style `platform_device/driver`, bus matching, `platform_get_resource` (4 drivers wired) |
+| **Userspace** | init (PID 1) + shell fork+exec + 10 external coreutils + vinixlibc POSIX subset (~1.4 KLOC) |
+| **HDMI Display** | 800×600 RGB565, TDA19988 HDMI transmitter qua I2C, LCDC framebuffer |
 
 ### HDMI Graphics Stack
 
@@ -71,9 +78,11 @@ HDMI Output 800×600@60Hz
 
 ### Userspace
 
-- **Shell** — chạy ở User Mode (`CPSR = 0x10`), isolated hoàn toàn khỏi kernel
-- **Syscall wrappers** — `write`, `read`, `yield`, `exit`, `open`, `read_file`, `close`, `listdir`
-- **crt0.S** — setup stack, clear BSS, call `main()`, `sys_exit()`
+- **init** (PID 1) — respawn loop, fork+exec `/bin/sh`, reap zombie
+- **shell** (`/bin/sh`) — fork+exec external ELF, built-ins (`cd`, `pwd`, `help`, `exit`), redirect `>` `<` `>>`, auto-prepend `/bin/` cho command không có `/`
+- **Coreutils** — 10 ELFs trên `/bin/`: `ls cat echo ps kill pwd free uname rm mv` (mỗi utility ~30–150 LOC, link vinixlibc)
+- **vinixlibc** — POSIX subset ~1.4 KLOC: `string.h`, `stdio.h` (printf family + FILE), `stdlib.h` (K&R free-list malloc), `unistd.h`, `fcntl.h`, `ctype.h`, `errno.h`, `signal.h`, `sys/stat.h`, `sys/wait.h`
+- **crt0.S** — argv passthrough, BSS clear, call `main(argc, argv)`, `sys_exit(rc)` fallback
 
 ---
 
@@ -184,7 +193,8 @@ make -C VinixOS
 Output:
 
 - `VinixOS/bootloader/MLO` — first-stage bootloader
-- `VinixOS/kernel/build/kernel.bin` — kernel với embedded shell
+- `VinixOS/kernel/build/kernel.bin` — kernel với embedded init (PID 1 payload)
+- `VinixOS/userspace/build/apps/<app>/<app>.elf` — 10 external utilities + init + shell
 
 #### Bước 3: Flash SD Card
 
@@ -194,19 +204,19 @@ lsblk   # trước khi cắm
 lsblk   # sau khi cắm → device mới là SD card (vd: /dev/sdb)
 ```
 
-Flash lần đầu (wipe toàn bộ SD card):
+Build + deploy userspace ELFs + flash MLO/kernel trong một bước:
 
 ```bash
-sudo ./scripts/wipe_and_flash.sh /dev/sdX
+sudo ./scripts/deploy_and_flash.sh /dev/sdX
 ```
 
-Cập nhật nhanh (chỉ ghi đè MLO + kernel, không wipe):
+Chỉ ghi đè MLO + kernel (không đụng FAT32 rootfs):
 
 ```bash
 sudo ./scripts/flash_sdcard.sh /dev/sdX
 ```
 
-> ⚠️ **Cảnh báo:** `wipe_and_flash.sh` xóa toàn bộ dữ liệu trên SD card. Kiểm tra kỹ device trước khi chạy.
+> ⚠️ Kiểm tra kỹ device trước khi chạy — `dd` vào sai ổ sẽ phá dữ liệu.
 
 **Disk layout (RAW mode — TRM 26.1.8.5.5):**
 
@@ -234,47 +244,44 @@ Nếu không thấy output, kiểm tra đã chạy `sudo usermod -a -G dialout $
 3. Cắm nguồn 5V
 4. Thả nút BOOT sau 2–3 giây
 
-Trên UART console:
+Trên UART console (rút gọn):
 
-```
-========================================
-VinixOS Bootloader
-========================================
-DDR:    Initializing 512MB DDR3... Done
-MMC:    Loading kernel from SD card...
-Boot:   Jumping to kernel @ 0x80000000
-========================================
+```text
+VinixOS Bootloader — DDR 128MB OK, loading kernel ...
+[PLATFORM] AM3358 + BeagleBone Black
+[DRIVER] probing omap-uart / omap-dmtimer / omap-intc / omap-hsmmc
+[MM] page_alloc pool 112 MB, slab ready, kmalloc OK
+[SCHED] preemptive RR 10ms, MAX_TASKS=5
+[VFS] mount / fat32, /dev devfs, /proc procfs
+[BOOT] init (pid 1) started from payload
+[INIT] fork+exec /bin/sh
 
-[BOOT] VinixOS: Interactive Shell
-[BOOT] Loading User App Payload to 0x40000000
-[BOOT] UART init complete. Starting HDMI boot screen...
-[BOOT] Boot complete. Starting scheduler...
-
-VinixOS Shell
-Type 'help' for commands
-
-$ _
+#
 ```
 
 Trên **HDMI monitor**: Boot log → Splash → Home launcher
 
 #### Bước 6: Dùng Shell
 
+```text
+# ls /
+bin  sbin  etc
+# ls /bin
+cat  echo  free  hello  kill  ls  mv  ps  pwd  rm  sh  uname
+# ps
+  PID  PPID  STATE     CMD
+    0     0  RUNNING   idle
+    1     0  INT       /sbin/init
+    2     1  RUNNING   /bin/sh
+# echo "hello" > /tmp/test
+# cat /tmp/test
+hello
+# cat /proc/meminfo
+# cat /proc/1/status
+# kill 3
 ```
-$ help
-Available commands:
-  help     - Show this help
-  ls       - List files in /
-  cat      - Display file content
-  ps       - Show running tasks
-  meminfo  - Show memory layout
-  exec     - Execute a program
 
-$ ls
-hello.txt  info.txt
-```
-
-VinixOS đã sẵn sàng. Tiếp theo có thể dùng VinCC để viết và chạy chương trình riêng.
+VinixOS đã sẵn sàng. Tiếp theo có thể dùng VinCC để viết và chạy chương trình C riêng.
 
 ---
 
@@ -307,26 +314,21 @@ file test_hello
 # Expected: ELF 32-bit LSB executable, ARM, EABI5 ...
 ```
 
-#### Bước 3: Embed vào VinixOS và Flash
+#### Bước 3: Deploy binary sang SD card
+
+Đặt ELF vào `/bin/` trên FAT32 partition đã mount (`/media/$USER/VINIX/bin/test_hello`), hoặc rebuild + deploy toàn bộ rootfs:
 
 ```bash
-# Đặt binary vào initfs → tự động có trong RAMFS
-cp test_hello VinixOS/initfs/
-
-# Rebuild kernel (để nhúng binary mới)
-make -C VinixOS kernel
-
-# Flash lại SD card
-sudo ./scripts/flash_sdcard.sh /dev/sdX
+sudo ./scripts/deploy_and_flash.sh /dev/sdX
 ```
 
 Boot lại BeagleBone Black (giữ nút BOOT → cắm nguồn), sau đó trên shell:
 
 ```
-$ ls
-test_hello  hello.txt  info.txt
+$ ls /bin
+cat  echo  free  kill  ls  mv  ps  pwd  rm  sh  test_hello  uname
 
-$ exec test_hello
+$ /bin/test_hello
 Hello, VinixOS!
 ```
 
@@ -339,15 +341,19 @@ Vinix-OS/
 ├── VinixOS/
 │   ├── bootloader/          ← MLO (SRAM @ 0x402F0400)
 │   ├── kernel/
+│   ├── platform/bbb/        ← AM3358 board: memory map, IRQ, platform device table
+│   ├── kernel/
 │   │   ├── src/
-│   │   │   ├── arch/arm/    ← entry.S, MMU, context switch
-│   │   │   ├── drivers/     ← UART, Timer, INTC, I2C, LCDC, TDA19988, fb
-│   │   │   ├── kernel/      ← main, scheduler, syscalls, MMU, VFS
+│   │   │   ├── arch/arm/    ← entry.S, MMU asm, context switch, exception vectors
+│   │   │   ├── drivers/     ← uart, timer, intc, mmc, i2c, lcdc, fb, tda19988, mbr, watchdog
+│   │   │   ├── kernel/      ← mm, mmu, sync, scheduler, proc, fs, block, dev, driver, core, ui, test
 │   │   │   └── ui/          ← boot_screen.c (boot log, splash, home)
 │   │   └── include/
-│   ├── userspace/           ← shell app, crt0.S, syscall wrappers
-│   ├── initfs/              ← files baked vào RAMFS lúc build
-│   └── docs/                ← 9 tài liệu kỹ thuật
+│   ├── userspace/
+│   │   ├── apps/            ← init, shell, 10 coreutils + hello
+│   │   ├── lib/             ← crt0.S, syscall wrappers
+│   │   └── vinixlibc/       ← POSIX subset (~1.4 KLOC hand-written)
+│   └── docs/                ← tài liệu kỹ thuật
 │
 ├── CrossCompiler/
 │   ├── toolchain/
@@ -360,9 +366,8 @@ Vinix-OS/
 ├── scripts/
 │   ├── setup-environment.sh
 │   ├── install_compiler.sh
-│   ├── wipe_and_flash.sh      ← Full wipe + flash SD card
-│   ├── flash_sdcard.sh        ← Quick update MLO + kernel
-│   └── generate_ramfs_table.py
+│   ├── deploy_and_flash.sh    ← Build + deploy rootfs + flash MLO/kernel
+│   └── flash_sdcard.sh        ← Quick update MLO + kernel only
 │
 ├── CLAUDE.md                ← Project guide cho AI-assisted development
 ├── Makefile
@@ -375,21 +380,22 @@ Vinix-OS/
 
 | Component | Trạng Thái | Tài Liệu |
 |-----------|-----------|---------|
-| Bootloader (MLO) | ✅ Hoàn thành | [01-boot-and-bringup.md](VinixOS/docs/01-boot-and-bringup.md) |
-| Kernel Core | ✅ Hoàn thành | [02-kernel-initialization.md](VinixOS/docs/02-kernel-initialization.md) |
-| Memory Management (MMU) | ✅ Hoàn thành | [03-memory-and-mmu.md](VinixOS/docs/03-memory-and-mmu.md) |
-| Interrupt Handling | ✅ Hoàn thành | [04-interrupt-and-exception.md](VinixOS/docs/04-interrupt-and-exception.md) |
-| Task Scheduler | ✅ Hoàn thành | [05-task-and-scheduler.md](VinixOS/docs/05-task-and-scheduler.md) |
-| System Calls | ✅ Hoàn thành | [06-syscall-mechanism.md](VinixOS/docs/06-syscall-mechanism.md) |
-| Filesystem (VFS + RAMFS) | ✅ Hoàn thành | [07-filesystem-vfs-ramfs.md](VinixOS/docs/07-filesystem-vfs-ramfs.md) |
-| Userspace Shell | ✅ Hoàn thành | [08-userspace-application.md](VinixOS/docs/08-userspace-application.md) |
-| HDMI Display (800×600) | ✅ Hoàn thành | [99-system-overview.md](VinixOS/docs/99-system-overview.md) |
-| Boot Screen (Log + Splash) | ✅ Hoàn thành | `kernel/src/ui/boot_screen.c` |
-| Home Launcher (Icon Grid) | ✅ Hoàn thành | `kernel/src/ui/boot_screen.c` |
-| Compiler Frontend | ✅ Hoàn thành | [architecture.md](CrossCompiler/docs/architecture.md) |
-| Compiler IR | ✅ Hoàn thành | [ir_format.md](CrossCompiler/docs/ir_format.md) |
-| Compiler Backend | ✅ Hoàn thành | [codegen_strategy.md](CrossCompiler/docs/codegen_strategy.md) |
-| Runtime Library | ✅ Hoàn thành | [usage_guide.md](CrossCompiler/docs/usage_guide.md) |
+| Bootloader (MLO) | ✅ Shipped | [01-boot-and-bringup.md](VinixOS/docs/01-boot-and-bringup.md) |
+| Platform Layer (4-layer HAL) | ✅ Shipped | `platform/bbb/` |
+| Memory (page_alloc + slab + kmalloc + VMM + L2) | ✅ Shipped | [03-memory-and-mmu.md](VinixOS/docs/03-memory-and-mmu.md) |
+| Concurrency (spinlock + atomic + wait_queue + sleep) | ✅ Shipped | `kernel/src/kernel/sync/` |
+| Interrupt + Exception Handling | ✅ Shipped | [04-interrupt-and-exception.md](VinixOS/docs/04-interrupt-and-exception.md) |
+| Preemptive Scheduler | ✅ Shipped | [05-task-and-scheduler.md](VinixOS/docs/05-task-and-scheduler.md) |
+| Process Model (fork/exec/wait/kill/SIGSEGV) | ✅ Shipped | `kernel/src/kernel/proc/` |
+| Syscalls (22, AAPCS + errno) | ✅ Shipped | [06-syscall-mechanism.md](VinixOS/docs/06-syscall-mechanism.md) |
+| VFS + FAT32 + devfs + procfs + block + bcache | ✅ Shipped | [99-system-overview.md](VinixOS/docs/99-system-overview.md) |
+| Linux-style Driver Model (platform_device/driver) | ✅ Shipped | `kernel/src/kernel/driver/` |
+| vinixlibc (POSIX subset ~1.4 KLOC) | ✅ Shipped | `userspace/vinixlibc/` |
+| Userspace (init + shell + 10 coreutils) | ✅ Shipped | [08-userspace-application.md](VinixOS/docs/08-userspace-application.md) |
+| Selftest harness | ✅ Shipped | `kernel/src/kernel/test/selftest.c` |
+| HDMI Display (800×600) + Boot Screen | ✅ Shipped | `kernel/src/ui/boot_screen.c` |
+| Networking (CPSW + UDP/ICMP/ARP) | ⏳ Deferred to phase 2 | — |
+| Compiler Frontend / IR / Backend / Runtime | ✅ Shipped | [architecture.md](CrossCompiler/docs/architecture.md) |
 
 ---
 
@@ -405,7 +411,6 @@ Vinix-OS/
 | [04-interrupt-and-exception.md](VinixOS/docs/04-interrupt-and-exception.md) | INTC, IRQ flow, exception handlers |
 | [05-task-and-scheduler.md](VinixOS/docs/05-task-and-scheduler.md) | Context switch, round-robin |
 | [06-syscall-mechanism.md](VinixOS/docs/06-syscall-mechanism.md) | SVC ABI, pointer validation |
-| [07-filesystem-vfs-ramfs.md](VinixOS/docs/07-filesystem-vfs-ramfs.md) | VFS abstraction, RAMFS |
 | [08-userspace-application.md](VinixOS/docs/08-userspace-application.md) | crt0.S, linker script, shell |
 | [99-system-overview.md](VinixOS/docs/99-system-overview.md) | Big picture, flows, memory map |
 
@@ -425,17 +430,20 @@ Vinix-OS/
 
 | Principle | Ví Dụ |
 |-----------|-------|
-| **Simplicity over features** | 1-level page table, round-robin scheduler, static task array |
-| **Correctness over performance** | Flush toàn bộ TLB, no nested interrupts, -O2 chỉ |
-| **Explicit over implicit** | Explicit MMU setup, explicit stack reload, explicit pointer validation |
-| **Real hardware, no emulation** | Chạy trực tiếp trên BeagleBone Black |
+| **100% hand-written** | Không fork/port Linux/musl/BusyBox/lwIP. Mọi dòng tự viết. |
+| **Linux-inspired API shape** | `task_struct`, `platform_driver`, `spinlock_t`, `wait_event`, `kmalloc(GFP_KERNEL)` — pattern Linux, code VinixOS |
+| **Userspace-driven kernel** | Mỗi feature kernel phải có consumer trong userspace/demo. Không consumer → defer. |
+| **Simplicity over features** | MAX_TASKS = 5, single priority, bitmap page allocator, no COW fork |
+| **Correctness over performance** | Flush toàn bộ TLB, no nested interrupts, `-O2` không aggressive |
+| **Explicit over implicit** | Explicit MMU setup, `copy_from/to_user` cho mọi con trỏ user |
+| **Real hardware, no emulation** | Mọi DoD pass trên BeagleBone Black thật, không QEMU |
 
 ---
 
 ## Troubleshooting
 
 **Boot fails (không thấy output UART):**
-- Verify SD card đã flash đúng: `sudo ./scripts/wipe_and_flash.sh /dev/sdX`
+- Verify SD card đã flash đúng: `sudo ./scripts/deploy_and_flash.sh /dev/sdX`
 - Check serial connection: GND-GND, RX-TX, TX-RX, đúng 3.3V TTL
 - Verify baudrate 115200 8N1
 
@@ -444,8 +452,9 @@ Vinix-OS/
 - Monitor phải support 800×600@60Hz
 
 **Data Abort / MMU Fault:**
-- Check page table configuration trong `mmu.c`
-- Verify VBAR được update đúng sau `mmu_init()`
+- Exception handler dump r0–r12, SPSR, DFSR, DFAR — log đủ để trace
+- User-mode fault → process bị SIGSEGV, kernel sống. Kernel-mode fault → PANIC dump
+- Nếu MMU fault ngay sau `mmu_init()`: check L1/L2 page table trong `kernel/src/kernel/mmu/mmu.c`
 
 **Build fails:**
 - Verify `arm-none-eabi-gcc` đã install: `arm-none-eabi-gcc --version`
@@ -460,16 +469,22 @@ Vinix-OS/
 ## FAQ
 
 **Tại sao không dùng Linux hoặc RTOS có sẵn?**
-Đây là educational project. OS có sẵn che giấu implementation details. VinixOS implement mọi thứ từ đầu để có thể hiểu từng layer.
+VinixOS nhắm sovereignty tuyệt đối — 100% tự viết từ zero (kernel, libc, userspace, compiler) để chủ sở hữu từng dòng code. Target market: defense/industrial embedded VN cần owned stack thay vì Yocto/Buildroot Linux.
+
+**Có phải là Unix/Linux clone không?**
+Không. API shape (naming, struct layout, syscall convention) theo pattern Linux để dev biết Linux đọc code dễ, nhưng codebase độc lập — không fork, không port, không borrow dòng nào từ Linux/musl/BusyBox/lwIP upstream.
 
 **Tại sao BeagleBone Black?**
-Giá ~$60, AM335x được document công khai, không cần proprietary tools, ARMv7-A real hardware.
+Giá ~$60, AM335x được document công khai qua TRM, không cần proprietary tools, ARMv7-A real hardware. Port sang SoC khác chỉ cần viết `platform/<new>/` + driver — kernel không đổi dòng nào (4-layer HAL).
 
 **Tại sao ARMv7-A thay vì ARMv8/RISC-V?**
 ARMv7-A đơn giản hơn (32-bit, 1 exception level) nhưng vẫn đại diện cho production embedded systems.
 
 **VinCC có thể compile chương trình phức tạp không?**
-VinCC hỗ trợ Subset C — đủ cho algorithms, data structures, và I/O qua syscalls. Không có `struct`, `malloc`, hay standard library.
+VinCC hỗ trợ Subset C — đủ cho algorithms, data structures, và I/O qua syscalls. Không có `struct`, `malloc`, standard library. VinCC CHỈ dùng cho end-user C program — kernel + libc + userspace của VinixOS build bằng `arm-none-eabi-gcc`.
+
+**Có network stack không?**
+Phase 1 (hiện tại): chưa. Phase 2: hand-written CPSW driver + UDP/ICMP/ARP (no TCP).
 
 ---
 

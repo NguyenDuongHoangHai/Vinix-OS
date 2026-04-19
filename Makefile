@@ -14,7 +14,7 @@ all: vinixos compiler
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Install compiler: bash scripts/install_compiler.sh"
-	@echo "  2. Deploy to SD card: bash scripts/flash_sdcard.sh /dev/sdX"
+	@echo "  2. Deploy to SD card: sudo bash scripts/deploy_and_flash.sh /dev/sdX"
 	@echo "  3. Connect serial: screen /dev/ttyUSB0 115200"
 	@echo ""
 
@@ -69,6 +69,6 @@ help:
 	@echo "Quick Start:"
 	@echo "  1. make all                              # Build everything"
 	@echo "  2. bash scripts/install_compiler.sh      # Install compiler"
-	@echo "  3. bash scripts/flash_sdcard.sh /dev/sdX # Deploy to SD"
+	@echo "  3. sudo bash scripts/deploy_and_flash.sh /dev/sdX  # Deploy to SD"
 	@echo ""
 	@echo "For detailed instructions, see README.md"

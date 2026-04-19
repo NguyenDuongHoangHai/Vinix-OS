@@ -276,8 +276,8 @@ close(3)
 | 4 | [04-interrupt-and-exception](04-interrupt-and-exception.md) | Exception types, INTC, IRQ flow | Trước khi đọc scheduler |
 | 5 | [05-task-and-scheduler](05-task-and-scheduler.md) | Context switch, round-robin, timer | Sau interrupt |
 | 6 | [06-syscall-mechanism](06-syscall-mechanism.md) | SVC ABI, pointer validation, syscalls | Trước khi đọc userspace |
-| 7 | [07-filesystem-vfs-ramfs](07-filesystem-vfs-ramfs.md) | VFS abstraction, RAMFS, file embedding | Độc lập |
-| 8 | [08-userspace-application](08-userspace-application.md) | crt0, linker script, shell, privilege | Sau khi hiểu syscalls |
+| 7 | [08-userspace-application](08-userspace-application.md) | crt0, linker script, shell, privilege | Sau khi hiểu syscalls |
+| 8 | [10-p7-networking-handoff](10-p7-networking-handoff.md) | Networking module handoff (CPSW + UDP/ICMP/ARP) | Độc lập |
 | 9 | [99-system-overview](99-system-overview.md) | Big picture, flows, memory map | File này — bất kỳ lúc nào |
 
 ---

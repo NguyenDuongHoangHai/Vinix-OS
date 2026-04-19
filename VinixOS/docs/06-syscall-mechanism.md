@@ -333,5 +333,4 @@ sequenceDiagram
 ## Xem Thêm
 
 - [04-interrupt-and-exception.md](04-interrupt-and-exception.md) — SVC exception entry mechanism
-- [07-filesystem-vfs-ramfs.md](07-filesystem-vfs-ramfs.md) — `sys_open/read/close` implementations
 - [08-userspace-application.md](08-userspace-application.md) — user-side syscall wrappers
