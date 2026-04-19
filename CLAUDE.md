@@ -1,5 +1,9 @@
 # CLAUDE.md — VinixOS Project Guide
 
+**Plan chi tiết**: [/home/haidoan2098/.claude/plans/t-i-mu-n-b-n-trace-velvet-mitten.md](/home/haidoan2098/.claude/plans/t-i-mu-n-b-n-trace-velvet-mitten.md)
+
+Roadmap P0-P8 + U1 + U2, timeline, architecture decisions, và scope cuts đều nằm trong plan đó. CLAUDđE.md này là rules + conventions bắt buộc mọi session.
+
 ---
 
 ## 1. Hard Constraints
@@ -8,26 +12,27 @@ BẮT BUỘC tuân thủ mọi lúc. Không có ngoại lệ.
 
 **Memory — KHÔNG được:**
 
-- Dùng `malloc`/`free` — chỉ static allocation
+- Dùng `malloc`/`free` — chỉ static allocation (kernel) hoặc `kmalloc/kfree` nội bộ (sau P1)
 - Dùng buffer lớn trên stack (kernel stack nhỏ)
 
 **Standard Library — KHÔNG được:**
 
 - `#include <stdio.h>`, `<stdlib.h>` trong kernel code
-- Dùng `printf()` — phải dùng `uart_printf()`
+- Dùng `printf()` — phải dùng `uart_printf()` (sau P8: `pr_info/pr_err/pr_warn/pr_debug`)
 - Dùng bất cứ libc function nào — chỉ dùng `libc/src/string.c` nội bộ
 
 **Hardware Access — BẮT BUỘC:**
 
 - Truy cập register chỉ qua `mmio_read32(addr)` / `mmio_write32(addr, val)`
 - Lấy register address và bit definition từ AM335x TRM — KHÔNG được đoán
+- **KHÔNG hardcode peripheral address** trong `kernel/` — dùng `platform/bbb/` constants
 
 **Toolchain — KHÔNG được:**
 
 - Mix `arm-none-eabi` và `arm-linux-gnueabihf`
 - Build kernel trước userspace (thứ tự: `userspace` → `kernel`, luôn luôn)
 
-**VinCC Subset C — CHỈ áp dụng cho user program biên dịch bằng VinCC. KHÔNG áp dụng cho kernel (kernel dùng `arm-none-eabi-gcc` full C):**
+**VinCC Subset C — CHỈ áp dụng cho user program biên dịch bằng VinCC. KHÔNG áp dụng cho kernel:**
 
 - `struct`, `union`, `enum`, `float`, `double`
 - `++` / `--` — dùng `i = i + 1`
@@ -40,35 +45,101 @@ BẮT BUỘC tuân thủ mọi lúc. Không có ngoại lệ.
 - Dùng emulator — chỉ chạy trên hardware thật
 - Thêm abstraction layer không cần thiết
 
-**Reference Code (`docs_trainingAI/drivers/*/source/`) — BẮT BUỘC:**
+**Scope hardcoded (không mở rộng khi chưa có consumer):**
 
-- Reference source (omap_hsmmc.c, FatFs, ...) CHỈ dùng để hiểu logic và sequence
-- Viết lại từ đầu theo convention của VinixOS (naming, logging, register access, static allocation)
-- KHÔNG được copy nguyên block code — mỗi dòng phải được hiểu và adapt
-- Reference code thường dùng Linux API, malloc, pattern không tương thích với VinixOS — luôn verify trước khi adapt
+- MAX_TASKS = 5
+- Signal set: `SIGKILL`, `SIGSEGV` (KHÔNG `SIGTERM`, `SIGCHLD`)
+- `wait()` chỉ wait-any (KHÔNG `waitpid(pid)`)
+- Concurrency primitive: spinlock + atomic + wait_queue (KHÔNG mutex, KHÔNG semaphore)
+- KHÔNG pipe syscall ở v1 (defer v1.1)
+- KHÔNG TCP (UDP/ICMP/ARP only nếu P7)
+- KHÔNG editor (device dùng `echo >` redirect)
 
 ---
 
-## 2. Project Context
+## 2. Rule 7 — 100% Tự Viết (TUYỆT ĐỐI)
+
+**Mọi dòng code trong repo phải được tay gõ, hiểu, chịu trách nhiệm.**
+
+### KHÔNG ĐƯỢC copy/fork/port từ
+
+- libc: musl, glibc, newlib
+- Userspace: BusyBox, toybox
+- Network: lwIP, uIP, picoTCP
+- Filesystem: FatFs, SDFat, Linux ext4 code
+- Compiler: TCC, GCC, chibicc, c4, PCC
+- Kernel: Linux (any tree), FreeBSD, NetBSD, Minix, xv6, seL4, Zephyr
+- Driver: bất kỳ upstream driver code nào
+
+### Reference code ở `docs_trainingAI/drivers/*/source/`
+
+- CHỈ được **đọc để hiểu logic và sequence**
+- PHẢI **viết lại từ đầu** theo naming + convention VinixOS
+- KHÔNG **copy nguyên block code** — mỗi dòng phải hiểu và adapt
+- Pattern thuật toán (ví dụ: free-list malloc K&R, recursive descent parser) OK để học, nhưng **code phải tay gõ**
+
+### Khi nghi ngờ "có đang copy không"
+
+1. Đóng reference source
+2. Code lại từ memory + hiểu biết
+3. Nếu phải mở reference lần 2-3 cho cùng function → rewrite hoàn toàn sau khi đóng
+
+### Checklist trước commit cuối mỗi phase
+
+- [ ] Không có file copy từ upstream
+- [ ] Git log message: "Implement X from scratch", không "Port X from Y"
+- [ ] Nếu học pattern từ Linux/BSD: ghi `/* Pattern reference: Linux <file>:<func> — re-implemented */` ở function header, không dùng code
+- [ ] Mọi comment là tiếng nói của bạn, không paraphrase
+
+**Narrative with investor:** *"100% Made in Vietnam by hand. Không asterisk."*
+
+---
+
+## 3. Project Context
 
 **VinixOS** — bare-metal ARM platform tự xây từ đầu, chạy trực tiếp trên BeagleBone Black (SoC AM3358, Cortex-A8, ARMv7-A). Không Linux, không emulator, không SDK thương mại.
 
-Hai component:
-- **VinixOS** — kernel + bootloader + userspace (C + ARM assembly)
-- **VinCC** — Python cross-compiler: Subset C → ARMv7-A ELF32
+### 4-layer HAL architecture
 
-**Toolchain:**
-- Kernel/bootloader → `arm-none-eabi-gcc` (bare-metal, no libc)
-- VinCC runtime/output → `arm-linux-gnueabihf-as`, `arm-linux-gnueabihf-ld`
+```text
+kernel/           — generic C: mm, sched, vfs, proc, ipc (KHÔNG đụng khi port)
+arch/arm/         — ARMv7 CPU: MMU asm, context switch, exception vector, cache ops
+platform/bbb/     — AM3358 SoC + BBB board: memory map, clocks, IRQ numbers, device table
+drivers/          — driver impls (omap_uart, omap_hsmmc, cpsw, lcdc, ...)
+```
 
-**Thứ tự build — luôn luôn:**
+**Port sang SoC khác** = viết `platform/<new>/` + driver mới. `kernel/` không đổi dòng nào.
+
+### Component
+
+- **VinixOS** — kernel + bootloader + userspace system tools (init/sh/ls/cat/ps/...), C + ARM assembly
+- **vinixlibc** — POSIX subset libc tự viết ~5K LOC (sau P6)
+- **VinCC** — Python cross-compiler **trên host**: Subset C → ARMv7 ELF32 cho end-user C program chạy trên VinixOS (laptop compile → copy ELF vào SD → BBB execute)
+
+### VinCC scope — chỉ cross-compile user program
+
+VinCC CHỈ dùng để compile chương trình C do end-user viết (hello.c, custom.c), link với vinixlibc, chạy ở tầng userspace VinixOS trên BBB.
+
+VinCC **KHÔNG** compile:
+
+- Kernel / bootloader
+- vinixlibc
+- VinixOS system tools (init, sh, ls, cat, ps, ...)
+- Bất cứ thứ gì thuộc repo VinixOS — những cái đó dùng `arm-none-eabi-gcc` full C
+
+### Toolchain
+
+- VinixOS code (kernel + bootloader + vinixlibc + system tools) → `arm-none-eabi-gcc` (bare-metal, full C)
+- End-user C programs (Subset C) → VinCC Python trên host → ELF output copy vào SD
+
+### Thứ tự build
 
 ```bash
 make -C VinixOS userspace   # TRƯỚC — kernel nhúng shell payload
 make -C VinixOS kernel      # SAU  — kernel lấy shell mới nhất
 ```
 
-### Memory Map (quick reference)
+### Memory Map (runtime)
 
 | Region | VA | PA | Thuộc tính |
 | --- | --- | --- | --- |
@@ -78,9 +149,11 @@ make -C VinixOS kernel      # SAU  — kernel lấy shell mới nhất
 | L4 PER (INTC, DMTimer, I2C, MMC0) | `0x48000000` | identity | 4 MB, device, Strongly Ordered |
 | Framebuffer | `0x80800000` | identity | 4 MB, non-cacheable |
 
+Constants định nghĩa ở `platform/bbb/include/platform/memory.h` + `memmap.h`.
+
 ### Knowledge Base
 
-Tài liệu hardware thẩm quyền ở `docs_trainingAI/`:
+Hardware authoritative ở `docs_trainingAI/`:
 
 - `project_context.md` — đọc trước khi bắt đầu session mới
 - `am335x/` — AM335x TRM (27 chapter)
@@ -92,126 +165,173 @@ LUÔN đọc `drivers/<name>/index.md` trước khi viết driver mới.
 
 ---
 
-## 3. Concurrency & State
+## 4. Linux Kernel Alignment
 
-VinixOS có **scheduler preemptive round-robin**. Nhiều task có thể chạy, nhưng hiện tại chỉ shell chạm tới filesystem / driver.
+Mọi abstraction (VFS, driver model, task/process, locking, memory) đi theo pattern Linux — naming, data structure, API shape. MVP nhưng ngữ nghĩa Linux.
 
-**Invariant hiện tại (có thể tin):**
+### Naming + data structures bắt buộc
 
-- Chỉ task shell gọi syscall đụng FS / MMC / driver
-- Mọi driver I/O đều polled (chưa có IRQ-driven I/O)
-- Buffer global static (ví dụ `sector_buf`, `fat_cache`) an toàn vì chỉ có 1 consumer duy nhất — được serial hóa
+**Memory:**
 
-**TRƯỚC KHI thêm task thứ hai chạm vào bất kỳ thứ nào ở trên:**
+- `kmalloc(size, GFP_KERNEL)` / `kfree` — kernel heap (MVP chỉ GFP_KERNEL)
+- `alloc_pages(gfp, order)` / `free_pages`
+- `kmem_cache_create/alloc/free` — slab cache
+- `struct page`, `struct vm_area_struct`, `struct mm_struct`
 
-1. PHẢI thêm lock quanh shared mutable state, HOẶC
-2. PHẢI disable preemption quanh critical section, HOẶC
-3. PHẢI document rõ lý do task mới không thể race với caller hiện có
+**Process:**
 
-**Không bao giờ giả định static buffer là an toàn** chỉ vì "hiện tại không có gì khác dùng nó". Document invariant trong comment ngay chỗ declare, và verify lại trước khi thêm caller mới.
+- `struct task_struct`, `current` macro
+- States: `TASK_RUNNING`, `TASK_INTERRUPTIBLE`, `TASK_UNINTERRUPTIBLE`, `TASK_STOPPED`, `TASK_ZOMBIE`
+- Syscall entry: `do_sys_open`, `do_sys_read`, `do_fork`, `do_exec`
+- Error: negative errno return
+- User access: `copy_from_user`, `copy_to_user`, `access_ok`
+
+**Concurrency:**
+
+- `spinlock_t` + `spin_lock/unlock/lock_irqsave/unlock_irqrestore`
+- `wait_queue_head_t` + `DECLARE_WAIT_QUEUE_HEAD` + `wait_event(wq, cond)` + `wake_up(wq)`
+- `atomic_t` + `atomic_inc/dec/read/cmpxchg`
+- `smp_mb()`, `smp_rmb()`, `smp_wmb()`, `barrier()`
+
+**VFS:**
+
+- `struct file`, `struct inode`, `struct dentry`, `struct super_block`
+- `struct file_operations`, `struct inode_operations`, `struct super_operations`
+
+**Driver model:**
+
+- `struct platform_device`, `struct platform_driver`, `struct bus_type`
+- `platform_driver_register`, `platform_get_resource`
+
+**Networking (nếu P7):**
+
+- `struct sk_buff`, `struct net_device`, `struct socket`
+
+**Logging:**
+
+- `pr_info`, `pr_err`, `pr_warn`, `pr_debug` — macro wrap `uart_printf` với level + `[MODULE]` prefix
+
+**Utility:**
+
+- `container_of(ptr, type, member)`, `list_head` + `list_add/del/for_each_entry`
+- `BUG_ON(cond)`, `WARN_ON(cond)`
+- `likely(x)`, `unlikely(x)`
+- `ARRAY_SIZE(a)`, `offsetof(t, m)`
+
+### KHÔNG copy từ Linux
+
+- Không `sysfs` (dùng `/proc` ở P8)
+- Không Device Tree động (hardcoded `platform/bbb/devices.c`)
+- Không full cgroup, namespace, audit, SELinux
+- Không RCU (spinlock + wait queue đủ)
+- Không preemption level phức tạp (single priority)
 
 ---
 
-## 4. Comments
+## 5. Userspace-Driven Kernel
 
-**Mặc định: không viết comment.**
+**Mỗi feature kernel phải có consumer cụ thể trong U1 hoặc demo script. Không consumer → defer, không add.**
 
-Chỉ viết comment khi một trong các trigger sau xảy ra:
+### Ví dụ áp dụng đã cắt
 
-1. Ràng buộc hardware không hiển nhiên (thứ tự theo spec, reset sau error, clock dependency)
-2. Invariant tinh tế mà reader tương lai có thể phá (buffer sharing, yêu cầu init order)
-3. Marker `CRITICAL:` cho code interrupt-mode hoặc nhạy cảm
-4. Section separator để navigate file >300 dòng
+- ✂ Priority scheduling (P2) — không case trong init+shell
+- ✂ `mutex`, `semaphore` (P2) — spinlock + wait queue đủ single-core
+- ✂ `SIGTERM`, `SIGCHLD` (P3/P4) — không consumer
+- ✂ `waitpid(pid)` — chỉ `wait(any)`
+- ✂ Orphan reparent — accept zombie leak (init luôn sống)
+- ✂ COW fork — full page copy
+- ✂ Backtrace (P8) — exception dump hiện tại đủ
+- ✂ IFSR/IFAR decode cho prefetch abort
+- ✂ Pipe syscall (P4) — demo không dùng `|`, defer v1.1
+- ✂ Editor (U1) — dùng `echo >` redirect
+- ✂ TCP — hand-write infeasible, UDP only
+- ✂ Text processing utilities (grep/head/tail/wc) — không demo
 
-KHÔNG viết comment để:
+### Rule vàng khi execute
 
-- Giải thích dòng code làm gì khi code đã nói rồi
-- Lặp lại điều mà tên register hoặc tên function đã nói
-- Mô tả task/phase hiện tại ("Phase 1 stub", "TODO sprint 3")
-- Tham chiếu PR / issue / fix cũ
+> *"Unix semantics hoàn hảo là siren call đưa dev lạc 6 tháng edge case. MVP dừng ở feature có consumer. Mọi cám dỗ mở rộng → `docs/known_gaps.md`."*
 
-### Good vs bad — ví dụ cụ thể
+---
 
-❌ **BAD** (giải thích cái gì):
+## 6. Concurrency & State
+
+VinixOS có **scheduler preemptive round-robin single priority**. MAX_TASKS = 5.
+
+### Primitives available
+
+- `spinlock_t` — critical section ngắn, IRQ-safe
+- `wait_queue_head_t` — block + wake pattern
+- `atomic_t` — LDREX/STREX
+- `smp_mb/rmb/wmb()`, `barrier()`
+
+**KHÔNG có** (do rule 5): mutex, semaphore, RCU, completion, rwlock.
+
+### Invariants hiện tại (có thể tin trước P1)
+
+- Chỉ task shell gọi syscall đụng FS / MMC / driver
+- Mọi driver I/O đều polled
+- Buffer global static (`sector_buf`, `fat_cache`) an toàn vì chỉ 1 consumer
+
+### Sau P1 (multi-task chạm shared state) — BẮT BUỘC
+
+1. Thêm `spinlock_t` quanh shared mutable state, HOẶC
+2. Disable preemption quanh critical section, HOẶC
+3. Document rõ lý do task mới không thể race với caller hiện có
+
+**KHÔNG giả định static buffer an toàn** chỉ vì "hiện tại không có gì khác dùng nó". Document invariant ngay chỗ declare, verify trước khi thêm caller mới.
+
+---
+
+## 7. Comments
+
+**Mặc định: KHÔNG viết comment.**
+
+### Yardstick
+
+> *"Nếu xoá comment này, code còn đọc được không? Còn → xoá. Không còn → giữ."*
+
+### 5 trường hợp ĐƯỢC viết
+
+1. **Hardware constraint không hiển nhiên** — ordering theo spec, reset sau error, clock dependency
+2. **Magic value lý do** — `/* FB at 0x80800000 = kernel(5MB)+user(1MB)+2MB margin */`
+3. **Invariant tinh tế reader có thể phá** — buffer sharing, init order, locking rule
+4. **Marker `CRITICAL:`** — interrupt-mode / nhạy cảm context
+5. **Cross-reference TRM/spec** khi hardcoded sequence (1 lần, không lặp)
+
+### 8 trường hợp CẮT
+
+1. Banner lặp lại tên file + mô tả dài dòng → banner 1 dòng
+2. "Imported from X" — include statement tự nói
+3. "Backward compatibility alias" — code tự giải thích
+4. "Consumed by Y" — grep tìm consumer
+5. Giải thích WHAT (`/* Clear status */` trước `mmio_write32`)
+6. Struct field trivial (`uint32_t pa; /* physical base */`)
+7. Task/phase marker (`/* P0 refactor */`, `/* Phase 1 stub */`)
+8. PR/issue reference (`/* Fix from #123 */` → belongs in commit message)
+
+### Good vs bad
+
+❌ **BAD**:
 ```c
 /* Clear status register */
 mmio_write32(MMC_STAT, 0xFFFFFFFF);
 
 /* Set command argument */
 mmio_write32(MMC_ARG, arg);
-
-/* Wait for TC (Transfer Complete) */
-while ((mmio_read32(MMC_STAT) & MMC_STAT_TC) == 0) { ... }
 ```
 
-✓ **GOOD** (giải thích tại sao — hardware spec hoặc invariant):
+✓ **GOOD**:
 ```c
-/* SD spec: voltage must be set BEFORE power. Reversed order leaves
- * the card in undefined state. */
+/* SD spec: voltage BEFORE power. Reversed = undefined card state. */
 mmio_write32(MMC_HCTL, MMC_HCTL_SDVS_3_3V);
 mmio_write32(MMC_HCTL, mmio_read32(MMC_HCTL) | MMC_HCTL_SDBP);
 
-/* CRITICAL: Must switch to SVC mode before calling context_switch */
+/* CRITICAL: switch to SVC mode before context_switch. */
 cps     #0x13
 ```
 
-### Javadoc cho public function
+### Banner template (1 dòng description)
 
-**Mặc định: không viết Javadoc.** Tên function tốt + parameter list là tài liệu đủ.
-
-Chỉ viết Javadoc khi:
-
-- Function có precondition không hiển nhiên ("phải gọi sau X")
-- Có side effect mà signature không lộ ra ("flush write cache")
-- Giá trị return cần làm rõ ("trả E_AGAIN nếu queue đầy")
-
-❌ **BAD** (lặp lại signature):
-```c
-/**
- * Close file descriptor
- * @param fd File descriptor
- * @return 0 on success, negative error code on failure
- */
-int vfs_close(int fd);
-```
-
-✓ **GOOD** (1 dòng precondition có giá trị):
-```c
-/* Does NOT flush write buffers — caller must sync first. */
-int vfs_close(int fd);
-```
-
-### Debug print
-
-Khi tạm comment out trong lúc bring-up: dùng `//` để grep lại được. Xóa hẳn sau khi feature ổn định.
-
-### Logging format
-
-BẮT BUỘC prefix mọi `uart_printf` bằng `[MODULE]` viết hoa:
-
-```c
-uart_printf("[TIMER] Initializing DMTimer2...\n");
-uart_printf("[SCHED] ERROR: No tasks to run!\n");
-```
-
----
-
-## 5. Coding Style
-
-4 space, không bao giờ dùng tab. Snake_case cho variable/function, UPPER_SNAKE cho macro.
-
-**Public symbol BẮT BUỘC có module prefix:** `uart_*`, `scheduler_*`, `intc_*`, `vfs_*`, ...
-
-**File layout** (mọi file `.c`):
-
-1. File header banner
-2. `#include` (dùng `""`, không `<>` trừ `<stdarg.h>`)
-3. `#define` cho register/field local
-4. `static` state (variable + forward decl)
-5. Static helper
-6. Public function
-
-**Template file header:**
 ```c
 /* ============================================================
  * filename.c
@@ -220,79 +340,155 @@ uart_printf("[SCHED] ERROR: No tasks to run!\n");
  * ============================================================ */
 ```
 
-**Braces:**
-- Function: `{` xuống dòng mới
-- Control flow (`if`/`while`/`for`): `{` cùng dòng
+### Javadoc
 
-**Assembly file:** inline comment dùng `@`, không phải `#`. Banner giống C.
+Chỉ khi:
 
-**Mọi thứ khác** (spacing, line wrap, include order): giữ nhất quán với file xung quanh trong cùng module. Không tranh luận về style trong PR.
+- Precondition không hiển nhiên ("phải gọi sau X")
+- Side effect không lộ ra signature ("flush write cache")
+- Return value edge case ("trả E_AGAIN nếu queue đầy")
+
+❌ **BAD** (lặp lại signature):
+```c
+/**
+ * @param fd File descriptor
+ * @return 0 on success
+ */
+int vfs_close(int fd);
+```
+
+✓ **GOOD**:
+```c
+/* Does NOT flush write buffers — caller must sync first. */
+int vfs_close(int fd);
+```
+
+### Debug print
+
+Tạm comment out khi bring-up: `//` để grep lại. Xoá hẳn sau khi feature ổn định.
+
+### Logging format
+
+BẮT BUỘC prefix mọi log bằng `[MODULE]` viết hoa:
+
+```c
+pr_info("[TIMER] Initializing DMTimer2...\n");
+pr_err("[SCHED] No tasks to run!\n");
+```
 
 ---
 
-## 6. Driver Development Workflow
+## 8. Coding Style
 
-CRITICAL: Trước khi viết driver mới, verify TẤT CẢ item trong checklist.
+4 space, không bao giờ dùng tab. Snake_case variable/function, UPPER_SNAKE macro.
 
-**NẾU THIẾU BẤT KỲ ITEM NÀO — DỪNG NGAY. KHÔNG ĐOÁN. Report lại cho user:**
+**Public symbol BẮT BUỘC có module prefix:** `uart_*`, `scheduler_*`, `intc_*`, `vfs_*`, `platform_*`, …
+
+**File layout** (mọi file `.c`):
+
+1. File header banner (1-line description)
+2. `#include` (dùng `""`, không `<>` trừ `<stdarg.h>`)
+3. `#define` cho register/field local
+4. `static` state (variable + forward decl)
+5. Static helper
+6. Public function
+
+**Braces:**
+
+- Function: `{` xuống dòng mới
+- Control flow: `{` cùng dòng
+
+**Assembly:** inline comment dùng `@`. Banner giống C.
+
+**Mọi thứ khác** (spacing, line wrap, include order): giữ nhất quán với file xung quanh trong cùng module.
+
+---
+
+## 9. Driver Development Workflow
+
+### Sau P4.5 — BẮT BUỘC platform_driver model
+
+Driver mới PHẢI đăng ký qua `platform_driver_register`:
+
+```c
+static int omap_xxx_probe(struct platform_device *pdev)
+{
+    struct resource *mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    int irq = platform_get_irq(pdev, 0);
+    /* ... init using mem->start, irq ... */
+}
+
+static struct platform_driver omap_xxx_driver = {
+    .drv = { .name = "omap-xxx" },
+    .probe = omap_xxx_probe,
+    .remove = omap_xxx_remove,
+};
+module_platform_driver(omap_xxx_driver);
+```
+
+Device matching qua `pdev->name` vs `drv->name` — table ở `platform/bbb/devices.c`.
+
+### Pre-requisite checklist
+
+CRITICAL: Trước khi viết driver mới, verify TẤT CẢ item. THIẾU bất kỳ → DỪNG NGAY, KHÔNG ĐOÁN:
 
 ```text
-Để viết driver cho [peripheral], tôi cần bạn cung cấp từ docs_trainingAI/:
+Để viết driver cho [peripheral], tôi cần từ docs_trainingAI/:
 - [item còn thiếu] → AM335x TRM Ch.XX
 - [item còn thiếu] → AM335x TRM Ch.XX
 ```
 
-**Checklist bắt buộc:**
-
 | Thông tin | Nguồn |
 | --- | --- |
-| Base address của peripheral | AM335x TRM Ch.02 — Memory Map |
+| Base address | AM335x TRM Ch.02 — Memory Map |
 | Register offset + bit definition | TRM chapter của peripheral |
-| Clock enable sequence (CM_PER / CM_WKUP) | AM335x TRM Ch.08 — PRCM |
-| IRQ number (nếu dùng interrupt) | AM335x TRM Ch.06 — Interrupts |
-| Pin mux / CONF_* (nếu cần) | AM335x TRM Ch.09 — Control Module |
+| Clock enable sequence | AM335x TRM Ch.08 — PRCM |
+| IRQ number | AM335x TRM Ch.06 — Interrupts |
+| Pin mux / CONF_* | AM335x TRM Ch.09 — Control Module |
 | Reset sequence | TRM chapter của peripheral |
 
-KHÔNG được copy register address từ project khác mà không verify với AM335x TRM.
+**KHÔNG copy register address từ project khác** mà không verify với AM335x TRM.
+
+**Platform data flow:** address + IRQ đi từ `platform/bbb/devices.c` → `platform_device` → driver `probe()` qua `platform_get_resource`. Driver KHÔNG hardcode `UART0_BASE` nữa.
 
 ---
 
-## 7. Debug Workflow
+## 10. Debug Workflow
 
-Không có JTAG trong workflow bình thường. **`uart_printf` là công cụ debug DUY NHẤT.**
+Không có JTAG trong workflow bình thường. **UART log là công cụ debug DUY NHẤT.**
 
 ### Khi user báo bug
 
-BẮT BUỘC gom đủ các thông tin sau TRƯỚC KHI phân tích hoặc đề xuất fix:
+BẮT BUỘC gom đủ TRƯỚC KHI phân tích hoặc fix:
 
 - Toàn bộ UART log từ đầu boot
-- Dòng log cuối cùng trước khi hang / crash
-- Loại exception nếu có (Data Abort / Prefetch Abort / Undefined)
-- Thao tác user làm ngay trước khi bug xảy ra
+- Dòng log cuối trước khi hang / crash
+- Loại exception (Data Abort / Prefetch Abort / Undefined)
+- Thao tác user ngay trước bug
 
 **KHÔNG đoán nguyên nhân khi chưa có UART log.**
 
 ### Debug bằng uart_printf
 
-Thêm checkpoint print trước và sau bước nghi ngờ:
+Checkpoint print trước và sau bước nghi ngờ:
 
 ```c
-uart_printf("[MODULE] Step X: before\n");
+pr_info("[MODULE] Step X: before\n");
 /* operation */
-uart_printf("[MODULE] Step X: after — reg = 0x%08x\n", mmio_read32(REG));
+pr_info("[MODULE] Step X: after — reg = 0x%08x\n", mmio_read32(REG));
 ```
 
-BẮT BUỘC print readback của register, không chỉ print giá trị vừa ghi:
+BẮT BUỘC print readback register, không chỉ giá trị vừa ghi:
 
 ```c
 mmio_write32(BASE + OFFSET, value);
-uart_printf("[DRV] wrote 0x%08x, readback = 0x%08x\n",
-            value, mmio_read32(BASE + OFFSET));
+pr_info("[DRV] wrote 0x%08x, readback = 0x%08x\n",
+        value, mmio_read32(BASE + OFFSET));
 ```
 
 ### Exception / Abort
 
-Khi gặp Data Abort hoặc Prefetch Abort, yêu cầu user cung cấp:
+Khi gặp Data/Prefetch Abort, yêu cầu user:
 
 ```text
 Chạy lại và cung cấp:
@@ -302,46 +498,76 @@ Chạy lại và cung cấp:
 4. PC tại thời điểm abort
 ```
 
-Nếu exception handler chưa print các register đó — đề xuất thêm vào `exception_handlers.c` TRƯỚC khi tiếp tục debug.
+Nếu exception handler chưa print những register đó — đề xuất thêm vào `exception_handlers.c` TRƯỚC khi debug tiếp.
 
 ---
 
-## 8. Definition of Done
+## 11. Definition of Done
 
-Task **chưa xong** cho đến khi tất cả item phù hợp dưới đây được thỏa mãn.
+Task **chưa xong** cho đến khi đủ item tương ứng:
 
 **Driver / kernel feature:**
 
 - Compile sạch (không warning)
-- User đã confirm thành công trên BeagleBone Black thật — không bao giờ tự giả định
-- Boot log sạch (không có dòng error bất ngờ)
+- User confirm thành công trên BeagleBone Black thật — không tự giả định
+- Boot log sạch (không có error bất ngờ)
 
 **Refactor / cleanup:**
 
 - Compile sạch
-- Không thay đổi behavior — kernel binary size bằng hoặc nhỏ hơn là dấu hiệu tốt
-- Nói rõ với user rằng thay đổi preserve behavior để họ có thể skip re-test
+- Không thay đổi behavior — kernel binary size bằng hoặc nhỏ hơn = dấu hiệu tốt
+- Nói rõ với user rằng thay đổi preserve behavior để họ skip re-test
 
 **Bug fix:**
 
-- Xác định được root cause (không chỉ suppress triệu chứng)
+- Xác định root cause (không chỉ suppress triệu chứng)
 - UART log cho thấy failure mode đã biến mất
 - User không báo regression ở khu vực liên quan
 
-**KHÔNG BAO GIỜ tuyên bố "complete" hoặc "works" chỉ dựa trên compile thành công.** Luôn nói "build sạch, bạn test trên hardware giúp" và chờ.
+**Scope checklist phase (từ plan file)**: mọi phase có checklist riêng trong plan — tick đủ mới commit.
+
+**Post-phase cleanup (khi 1 phase P0/P1/... hoàn thành):**
+
+1. Xoá mọi phase-specific comment — `/* P1 init */`, `/* Phase 1 stub */`, `/* TODO P2 */`, `/* lab — remove after PN */`. Code = final form, không WIP markers.
+2. Xoá scaffolding / lab code đã xong nhiệm vụ — ví dụ `mmu_lab.c` xoá sau P1 core stable.
+3. Boot log chỉnh chu — `[MODULE]` prefix consistent, không debug checkpoint noise, message format final đọc như production log.
+4. Git log cuối phase là pattern `Feat(scope): ...` / `Refactor(scope): ...`, không `WIP`, không `fix up`.
+5. Sau khi verify trên BBB thật → `git tag v0.PN-complete`.
+
+**Git commit — KHÔNG có `Co-Authored-By: Claude`** trailer trên bất kỳ commit VinixOS nào.
+
+**KHÔNG BAO GIỜ tuyên bố "complete" / "works" chỉ dựa compile thành công.** Luôn nói "build sạch, bạn test trên hardware giúp" và chờ.
 
 ---
 
-## 9. Scope Discipline
+## 12. Scope Discipline
 
 Match phạm vi hành động chính xác với điều user hỏi.
 
-**Khi user nói "fix X", KHÔNG đụng Y** ngay cả khi Y có vấn đề tương tự. Ghi nhận Y như một follow-up riêng.
+**Khi user nói "fix X", KHÔNG đụng Y** ngay cả khi Y có vấn đề tương tự. Ghi nhận Y như follow-up riêng.
 
-**Khi không chắc file có trong scope hay không, HỎI** — không extend task im lặng. "Nhân tiện tôi cũng..." là con đường dẫn đến over-refactor.
+**Khi không chắc file trong scope hay không, HỎI** — không extend task im lặng. "Nhân tiện tôi cũng..." là con đường over-refactor.
 
-**Refactor đụng hơn 5 file cần user confirm rõ ràng** trước khi bắt đầu. Trình bày scope estimate trước, chờ go-ahead.
+**Refactor đụng hơn 5 file cần user confirm** trước khi bắt đầu. Trình bày scope estimate trước, chờ go-ahead.
 
-**Prefer rolling cleanup hơn big-bang refactor.** Khi một vấn đề style/quality tồn tại khắp codebase, chỉ fix nó trong file đang sửa vì lý do khác.
+**Prefer rolling cleanup hơn big-bang refactor.** Khi một vấn đề style/quality tồn tại khắp codebase, chỉ fix trong file đang sửa vì lý do khác.
 
-Khi feature mới đụng đến architecture (scheduler, VFS, MMU, syscall ABI), dừng lại và propose design trước khi viết code.
+**Khi feature mới đụng architecture** (scheduler, VFS, MMU, syscall ABI, driver model) — dừng lại, reference plan file, propose design trước khi viết code.
+
+### Hardcoded scope limits (không mở rộng khi chưa có consumer)
+
+- MAX_TASKS = 5 — KHÔNG raise
+- Signal set: `SIGKILL` + `SIGSEGV` only
+- Concurrency: spinlock + atomic + wait_queue only
+- 1 priority scheduling
+- `wait()` any-child only
+- No pipe syscall (v1.1)
+- No editor on device
+- No TCP (UDP only)
+- vinixlibc POSIX subset ~5K LOC — KHÔNG grow beyond
+
+### Feature muốn mở rộng?
+
+1. Kiểm tra plan file — có trong roadmap chưa?
+2. Có consumer cụ thể trong U1/demo chưa?
+3. Nếu không → `docs/known_gaps.md`, KHÔNG add vào phase đang chạy
