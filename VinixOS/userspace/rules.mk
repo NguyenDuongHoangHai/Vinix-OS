@@ -21,7 +21,7 @@ CFLAGS = -Wall -Wextra -O2 -g \
          -ffreestanding -nostdlib -fno-builtin \
          -march=armv7-a -mfloat-abi=soft \
          -I$(INC_DIR) \
-         -I$(USERSPACE_ROOT)/libc/include
+         -I$(USERSPACE_ROOT)/vinixlibc/include
 
 # Linker Flags
 LDFLAGS = -nostdlib -T $(USERSPACE_ROOT)/linker/app.ld

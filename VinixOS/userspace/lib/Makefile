@@ -12,13 +12,16 @@ TARGET_CRT0   = $(LIB_BUILD_DIR)/crt0.o
 # Source files
 SRC_C = syscall.c
 SRC_S = crt0.S
-LIBC_SRC = ../libc/src/string.c
+
+# vinixlibc modules — hand-written POSIX subset
+VINIXLIBC_SRC_DIR = ../vinixlibc/src
+VINIXLIBC_SRCS    = string.c ctype.c errno.c
 
 # Object files
-OBJ_C = $(addprefix $(LIB_BUILD_DIR)/, $(SRC_C:.c=.o))
-OBJ_S = $(addprefix $(LIB_BUILD_DIR)/, $(SRC_S:.S=.o))
-OBJ_LIBC = $(LIB_BUILD_DIR)/string.o
-OBJS  = $(OBJ_C) $(OBJ_S) $(OBJ_LIBC)
+OBJ_C     = $(addprefix $(LIB_BUILD_DIR)/, $(SRC_C:.c=.o))
+OBJ_S     = $(addprefix $(LIB_BUILD_DIR)/, $(SRC_S:.S=.o))
+OBJ_LIBC  = $(addprefix $(LIB_BUILD_DIR)/vinixlibc_, $(VINIXLIBC_SRCS:.c=.o))
+OBJS      = $(OBJ_C) $(OBJ_S) $(OBJ_LIBC)
 
 all: $(TARGET_CRT0) $(TARGET_LIB)
 
@@ -34,8 +37,8 @@ $(LIB_BUILD_DIR)/%.o: %.c | $(LIB_BUILD_DIR)
 	@echo "  CC      lib/$<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJ_LIBC): $(LIBC_SRC) | $(LIB_BUILD_DIR)
-	@echo "  CC      libc/src/string.c"
+$(LIB_BUILD_DIR)/vinixlibc_%.o: $(VINIXLIBC_SRC_DIR)/%.c | $(LIB_BUILD_DIR)
+	@echo "  CC      vinixlibc/src/$*.c"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET_LIB): $(OBJ_C) $(OBJ_LIBC)

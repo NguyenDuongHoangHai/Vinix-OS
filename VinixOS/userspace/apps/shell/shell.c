@@ -8,6 +8,7 @@
 #include "user_syscall.h"
 #include "syscalls.h"
 #include "types.h"
+#include "string.h"
 #include <stdarg.h>
 
 /* ============================================================
@@ -83,15 +84,6 @@ void shell_puts(const char *s)
 }
 
 /* Simple printf implementation */
-
-/* Helper: compute string length */
-static int strlen(const char *s)
-{
-    int n = 0;
-    while (*s++)
-        n++;
-    return n;
-}
 
 /* Helper: format uint into buffer, return length */
 static int uint_to_buf(char *buf, uint32_t num, int base)
@@ -234,20 +226,6 @@ void printf(const char *fmt, ...)
         }
     }
     va_end(args);
-}
-
-/* ============================================================
- * String Helper Functions
- * ============================================================ */
-
-static int strcmp(const char *s1, const char *s2)
-{
-    while (*s1 && (*s1 == *s2))
-    {
-        s1++;
-        s2++;
-    }
-    return *(unsigned char *)s1 - *(unsigned char *)s2;
 }
 
 /* ============================================================
