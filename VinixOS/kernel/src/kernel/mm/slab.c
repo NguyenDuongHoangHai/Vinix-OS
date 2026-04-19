@@ -250,6 +250,4 @@ void slab_selftest(void)
     kfree(a);
     kfree(b);
     kfree(d);
-
-    uart_printf("[SLAB] Self-test PASS (alloc/free/reuse + kmalloc dispatch)\n");
 }

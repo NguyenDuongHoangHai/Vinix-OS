@@ -181,7 +181,4 @@ void page_alloc_selftest(void)
                     PAGE_MAX_ORDER);
         return;
     }
-
-    uart_printf("[PAGE] Self-test PASS (100x4KB + order-3, %d pages free)\n",
-                free_count);
 }

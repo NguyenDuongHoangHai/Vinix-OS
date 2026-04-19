@@ -167,6 +167,4 @@ void vmm_selftest(void)
         return;
     }
     mm_free(mm);
-
-    uart_printf("[VMM] Self-test PASS (5 mm cycles + vma sort)\n");
 }

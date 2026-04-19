@@ -64,6 +64,4 @@ void sync_selftest(void)
 
     uint32_t flags = spin_lock_irqsave(&lock);
     spin_unlock_irqrestore(&lock, flags);
-
-    uart_printf("[SYNC] Self-test PASS (atomic + spinlock mechanics)\n");
 }

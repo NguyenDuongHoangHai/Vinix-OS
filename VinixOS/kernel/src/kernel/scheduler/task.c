@@ -38,16 +38,13 @@
  */
 extern void svc_exit_trampoline(void);
 
-void task_stack_init(struct task_struct *task, 
+void task_stack_init(struct task_struct *task,
                      void (*entry_point)(void),
-                     void *stack_base, 
+                     void *stack_base,
                      uint32_t stack_size)
 {
     uint32_t *stack_ptr;
-    
-    uart_printf("[TASK] Initializing stack for task '%s' (User Mode Model)\n", 
-                task->name ? task->name : "(unnamed)");
-    
+
     /* STACK CANARY: Write magic number at stack bottom */
     *(uint32_t *)stack_base = STACK_CANARY_VALUE;
     
@@ -163,31 +160,4 @@ void task_stack_init(struct task_struct *task,
     if (task->context.sp_usr <= (uint32_t)stack_base) {
         PANIC("User Stack Setup Overflow");
     }
-
-    uart_printf("  Stack initialized. Kernel SP=0x%08x, User SP=0x%08x\n", 
-                task->context.sp, task->context.sp_usr);
-    
-    /* CRITICAL DEBUG: Dump stack frame */
-    uart_printf("[TASK] Stack Dump:\n");
-    uint32_t *d = (uint32_t *)task->context.sp;
-    
-    /* Frame 2 (Kernel) */
-    uart_printf("  [Frame 2 - Kernel]\n");
-    /* Currently SP points to R3 */
-    uart_printf("  R3..R11, LR (Callee Saved + Pad):\n");
-    for(int i=0; i<10; i++) uart_printf("    %08x ", *d++);
-    uart_printf("\n");
-    
-    /* Frame 1 (User) */
-    uart_printf("  [Frame 1 - User]\n");
-    uart_printf("  SPSR: 0x%08x\n", *d++);
-    uart_printf("  PAD:  0x%08x\n", *d++);
-    uart_printf("  R12..R0 (User):\n");
-    for(int i=0; i<13; i++) uart_printf("    %08x ", *d++);
-    uart_printf("\n");
-    uart_printf("  LR:   0x%08x (Expected Entry Point)\n", *d++);
-    
-    /* Check entry_point val */
-    uart_printf("[TASK] Entry Point Addr: 0x%08x\n", (uint32_t)entry_point);
-    uart_printf("[TASK] SP Alignment Check: 0x%08x %% 8 = %d\n", task->context.sp, task->context.sp % 8);
 }

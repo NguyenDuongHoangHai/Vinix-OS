@@ -107,13 +107,9 @@ int scheduler_add_task(struct task_struct *task)
         task->pgd_pa = mmu_kernel_pgd_pa();
     }
     
-    uart_printf("[SCHED] Added task %d: '%s'\n", 
+    uart_printf("[SCHED] added task %d: '%s'\n",
                 task->id, task->name ? task->name : "(unnamed)");
-    uart_printf("  Stack: 0x%08x - 0x%08x (%u bytes)\n",
-                (uint32_t)task->stack_base,
-                (uint32_t)task->stack_base + task->stack_size,
-                task->stack_size);
-    
+
     task_count++;
     
     return task->id;
@@ -129,24 +125,18 @@ int scheduler_add_task(struct task_struct *task)
  */
 void scheduler_start(void)
 {
-    uart_printf("\n[SCHED] Starting scheduler...\n");
-    
     if (task_count == 0) {
-        uart_printf("[SCHED] ERROR: No tasks to run!\n");
-        while (1);  /* Halt */
+        uart_printf("[SCHED] ERROR: no tasks to run\n");
+        while (1);
     }
-    
-    uart_printf("[SCHED] %d task(s) ready\n", task_count);
-    
-    /* Mark first task as running */
+
     current_task = tasks[0];
     current_task_index = 0;
     current_task->state = TASK_STATE_RUNNING;
     scheduler_started = true;
-    
-    uart_printf("[SCHED] Starting task 0: '%s'\n", current_task->name);
-    
-    TRACE_SCHED("Jumping to first task (NO RETURN)...");
+
+    uart_printf("[SCHED] starting with %d task(s), first='%s'\n",
+                task_count, current_task->name);
     
     /* Load first task context and jump to it
      * This will:

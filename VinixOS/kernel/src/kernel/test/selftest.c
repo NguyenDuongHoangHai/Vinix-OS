@@ -76,15 +76,11 @@ static const struct selftest tests[] = {
 
 void selftest_run_all(void)
 {
-    uart_printf("[TEST] running %d self-tests...\n", NTESTS);
-    int passed = 0;
     for (int i = 0; i < NTESTS; i++) {
         int rc = tests[i].run();
         if (rc != 0) {
             uart_printf("[TEST] FAIL %s (rc=%d)\n", tests[i].name, rc);
             PANIC("selftest failure");
         }
-        passed++;
     }
-    uart_printf("[TEST] PASS %d/%d\n", passed, NTESTS);
 }
