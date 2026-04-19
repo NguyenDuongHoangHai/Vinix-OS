@@ -15,7 +15,8 @@ SRC_S = crt0.S
 
 # vinixlibc modules — hand-written POSIX subset
 VINIXLIBC_SRC_DIR = ../vinixlibc/src
-VINIXLIBC_SRCS    = string.c ctype.c errno.c
+VINIXLIBC_SRCS    = string.c ctype.c errno.c printf.c stdlib.c unistd.c \
+                    signal.c stat.c file.c
 
 # Object files
 OBJ_C     = $(addprefix $(LIB_BUILD_DIR)/, $(SRC_C:.c=.o))

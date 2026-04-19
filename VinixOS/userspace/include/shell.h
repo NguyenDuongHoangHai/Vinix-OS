@@ -34,8 +34,9 @@
 /* Main Entry Point for Shell Task */
 void shell_task_entry(void);
 
-/* Standard Output Wrapper */
-void printf(const char *fmt, ...);
+/* Standard Output Wrapper — honours shell_stdout_fd so redirection
+ * works for built-ins. Signature matches POSIX. */
+int printf(const char *fmt, ...);
 
 /* Helper Prototypes */
 void shell_putc(char c);

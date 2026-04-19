@@ -83,149 +83,21 @@ void shell_puts(const char *s)
     }
 }
 
-/* Simple printf implementation */
+/* Format via vinixlibc's vsnprintf, then fan out through shell_puts
+ * so shell_stdout_fd (redirect target) and the UART \n→\r\n
+ * expansion are still honoured. Keeps one implementation of %d/%s/…
+ * for every userspace consumer. */
+extern int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 
-/* Helper: format uint into buffer, return length */
-static int uint_to_buf(char *buf, uint32_t num, int base)
+int printf(const char *fmt, ...)
 {
-    const char *digits = "0123456789abcdef";
-    int i = 0;
-
-    if (num == 0)
-    {
-        buf[0] = '0';
-        return 1;
-    }
-
-    /* Build digits in reverse */
-    char tmp[12];
-    while (num > 0)
-    {
-        tmp[i++] = digits[num % base];
-        num /= base;
-    }
-
-    /* Reverse into buf */
-    for (int j = 0; j < i; j++)
-    {
-        buf[j] = tmp[i - 1 - j];
-    }
-    return i;
-}
-
-/* Helper: emit 'count' spaces */
-static void pad_spaces(int count)
-{
-    while (count-- > 0)
-        shell_putc(' ');
-}
-
-void printf(const char *fmt, ...)
-{
+    char out[256];
     va_list args;
-    const char *p;
-
     va_start(args, fmt);
-
-    for (p = fmt; *p; p++)
-    {
-        if (*p != '%')
-        {
-            if (*p == '\n')
-                shell_putc('\r');
-            shell_putc(*p);
-            continue;
-        }
-
-        p++; /* skip '%' */
-
-        /* --- Parse flags --- */
-        int left_align = 0;
-        int zero_pad = 0;
-
-        while (*p == '-' || *p == '0')
-        {
-            if (*p == '-')
-                left_align = 1;
-            if (*p == '0')
-                zero_pad = 1;
-            p++;
-        }
-
-        /* --- Parse width --- */
-        int width = 0;
-        while (*p >= '0' && *p <= '9')
-        {
-            width = width * 10 + (*p - '0');
-            p++;
-        }
-
-        /* Left-align overrides zero-pad */
-        if (left_align)
-            zero_pad = 0;
-
-        /* --- Conversion specifier --- */
-        switch (*p)
-        {
-        case 'd':
-        case 'u':
-        {
-            char nbuf[12];
-            int len = uint_to_buf(nbuf, va_arg(args, uint32_t), 10);
-            if (!left_align)
-                pad_spaces(width > len ? width - len : 0);
-            for (int i = 0; i < len; i++)
-                shell_putc(nbuf[i]);
-            if (left_align)
-                pad_spaces(width > len ? width - len : 0);
-        }
-        break;
-        case 'x':
-        case 'X':
-        {
-            char nbuf[12];
-            int len = uint_to_buf(nbuf, va_arg(args, uint32_t), 16);
-            if (!left_align)
-            {
-                int pad = width > len ? width - len : 0;
-                if (zero_pad)
-                    while (pad-- > 0)
-                        shell_putc('0');
-                else
-                    pad_spaces(pad);
-            }
-            for (int i = 0; i < len; i++)
-                shell_putc(nbuf[i]);
-            if (left_align)
-                pad_spaces(width > len ? width - len : 0);
-        }
-        break;
-        case 's':
-        {
-            const char *s = va_arg(args, const char *);
-            if (!s)
-                s = "(null)";
-            int len = strlen(s);
-            if (!left_align)
-                pad_spaces(width > len ? width - len : 0);
-            shell_puts(s);
-            if (left_align)
-                pad_spaces(width > len ? width - len : 0);
-        }
-        break;
-        case 'c':
-            shell_putc((char)va_arg(args, int));
-            break;
-        case '%':
-            shell_putc('%');
-            break;
-        default:
-            shell_putc('%');
-            shell_putc(*p);
-            break;
-        }
-    }
+    int n = vsnprintf(out, sizeof(out), fmt, args);
     va_end(args);
+    shell_puts(out);
+    return n;
 }
 
 /* ============================================================

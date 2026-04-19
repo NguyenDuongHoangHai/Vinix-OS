@@ -8,7 +8,7 @@
 #include "types.h"
 
 /* Map internal logging to shell helpers within Shell Task */
-extern void printf(const char *fmt, ...);
+extern int printf(const char *fmt, ...);
 void shell_putc(char c);
 void shell_puts(const char *s);
 #define uart_putc shell_putc
