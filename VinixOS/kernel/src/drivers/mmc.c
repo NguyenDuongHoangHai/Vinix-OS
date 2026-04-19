@@ -441,3 +441,29 @@ int mmc_write_sectors(uint32_t lba, uint32_t count, const void *src)
 
     return E_OK;
 }
+
+/* ============================================================
+ * Platform driver wiring
+ * ============================================================ */
+
+#include "platform_device.h"
+#include "platform_drivers.h"
+
+static int omap_hsmmc_probe(struct platform_device *pdev)
+{
+    struct resource *mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    int irq = platform_get_irq(pdev, 0);
+    uart_printf("[MMC] probing %s @ 0x%08x irq %d\n",
+                pdev->name, mem ? mem->start : 0, irq);
+    return mmc_init();
+}
+
+static struct platform_driver omap_hsmmc_driver = {
+    .drv   = { .name = "omap-hsmmc" },
+    .probe = omap_hsmmc_probe,
+};
+
+int omap_hsmmc_driver_register(void)
+{
+    return platform_driver_register(&omap_hsmmc_driver);
+}

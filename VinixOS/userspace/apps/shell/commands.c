@@ -302,6 +302,38 @@ static int cmd_kill(int argc, char **argv)
     return 0;
 }
 
+static int cmd_devlist(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    dev_info_t devs[8];
+    int n = sys_devlist(devs, 8);
+    if (n < 0) {
+        printf("devlist failed: %d\n", n);
+        return -1;
+    }
+    printf("\n%-14s%-12s%-6s%-14s\n", "NAME", "BASE", "IRQ", "DRIVER");
+    printf("%-14s%-12s%-6s%-14s\n", "----", "----", "---", "------");
+    for (int i = 0; i < n; i++) {
+        char irqbuf[8];
+        if (devs[i].irq < 0) {
+            irqbuf[0] = '-'; irqbuf[1] = '\0';
+        } else {
+            /* small int-to-decimal */
+            int v = devs[i].irq, k = 0;
+            char rev[6];
+            if (v == 0) rev[k++] = '0';
+            while (v > 0) { rev[k++] = '0' + (v % 10); v /= 10; }
+            for (int j = 0; j < k; j++) irqbuf[j] = rev[k - 1 - j];
+            irqbuf[k] = '\0';
+        }
+        printf("%-14s0x%08x  %-6s%s\n",
+               devs[i].name, devs[i].base, irqbuf,
+               devs[i].driver[0] ? devs[i].driver : "(unbound)");
+    }
+    printf("\n");
+    return 0;
+}
+
 static int cmd_crash(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -367,4 +399,5 @@ const struct command cmd_table[] = {
     {"fork", cmd_fork, "fork", "Fork a child that exits immediately"},
     {"kill", cmd_kill, "kill <pid>", "Kill a running task by pid"},
     {"crash", cmd_crash, "crash", "Fork a child that NULL-derefs (demo isolation)"},
+    {"devlist", cmd_devlist, "devlist", "Show platform bus devices + bound drivers"},
     {NULL, NULL, NULL, NULL}};

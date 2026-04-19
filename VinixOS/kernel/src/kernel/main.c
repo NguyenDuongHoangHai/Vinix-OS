@@ -12,6 +12,8 @@
 #include "irq.h"
 #include "intc.h"
 #include "mmu.h"
+#include "platform_device.h"
+#include "platform_drivers.h"
 #include "page_alloc.h"
 #include "slab.h"
 #include "vmm.h"
@@ -55,7 +57,12 @@ void kernel_main(void)
 {
     /* 1. Hardware Init */
     watchdog_disable();
-    uart_init();
+
+    /* Populate the platform bus, then register drivers in the order
+     * their hardware needs to come up. Each register() triggers a
+     * probe for the matching device. */
+    platform_init();
+    omap_uart_driver_register();
 
     uart_printf("\n\n");
     uart_printf("========================================\n");
@@ -91,7 +98,7 @@ void kernel_main(void)
 
     fb_init();
 
-    intc_init();
+    omap_intc_driver_register();
     irq_init();
     uart_enable_rx_interrupt();
 
@@ -99,8 +106,8 @@ void kernel_main(void)
     uart_printf("[BOOT] Initializing Virtual File System...\n");
     vfs_init();
 
-    if (mmc_init() != E_OK) {
-        uart_printf("[BOOT] ERROR: MMC init failed\n");
+    if (omap_hsmmc_driver_register() != E_OK) {
+        uart_printf("[BOOT] ERROR: MMC driver probe failed\n");
         while (1);
     }
 
@@ -161,7 +168,7 @@ void kernel_main(void)
     boot_screen_run();
 
     /* 4. Now reconfigure timer for scheduler (10ms auto-reload + IRQ) */
-    timer_init();
+    omap_dmtimer_driver_register();
 
     uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
 

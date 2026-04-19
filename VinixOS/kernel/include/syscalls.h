@@ -25,6 +25,7 @@
 #define SYS_KILL 16
 #define SYS_DUP 17
 #define SYS_DUP2 18
+#define SYS_DEVLIST 19
 
 /* ============================================================
  * Data Structures
@@ -52,6 +53,14 @@ typedef struct
     char name[32]; // File name
     uint32_t size; // File size in bytes
 } file_info_t;
+
+typedef struct
+{
+    char     name[16];    // Device name (e.g. "omap-uart")
+    uint32_t base;        // IORESOURCE_MEM start, 0 if none
+    int      irq;         // IORESOURCE_IRQ start, -1 if none
+    char     driver[16];  // Bound driver name, empty if unbound
+} dev_info_t;
 
 /* ============================================================
  * Error Codes

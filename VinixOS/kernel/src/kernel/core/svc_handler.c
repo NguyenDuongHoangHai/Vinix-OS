@@ -16,6 +16,7 @@
 #include "string.h"
 #include "proc.h"
 #include "svc_context.h"
+#include "platform_device.h"
 
 extern uint8_t _shell_payload_start;
 extern uint8_t _shell_payload_end;
@@ -467,6 +468,18 @@ void svc_handler(struct svc_context *ctx)
 
     case SYS_DUP: {
         result = vfs_dup((int)ctx->r0);
+        break;
+    }
+
+    case SYS_DEVLIST: {
+        void *buf = (void *)ctx->r0;
+        uint32_t max_count = (uint32_t)ctx->r1;
+        uint32_t size = max_count * sizeof(dev_info_t);
+        if (validate_user_pointer(buf, size) != E_OK) {
+            result = E_PTR;
+            break;
+        }
+        result = platform_list_devices(buf, max_count);
         break;
     }
 

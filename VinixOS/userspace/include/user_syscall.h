@@ -111,6 +111,7 @@ int sys_getppid(void);
 int sys_kill(int pid, int sig);
 int sys_dup(int oldfd);
 int sys_dup2(int oldfd, int newfd);
+int sys_devlist(void *buf, uint32_t max_count);
 
 #define SIGKILL  9
 #define SIGSEGV 11

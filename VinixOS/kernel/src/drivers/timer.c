@@ -343,3 +343,30 @@ void delay_ms(uint32_t ms)
     while ((mmio_read32(DMTIMER2_BASE + TCRR) - start) < ticks)
         ;
 }
+
+/* ============================================================
+ * Platform driver wiring
+ * ============================================================ */
+
+#include "platform_device.h"
+#include "platform_drivers.h"
+
+static int omap_dmtimer_probe(struct platform_device *pdev)
+{
+    struct resource *mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    int irq = platform_get_irq(pdev, 0);
+    uart_printf("[TIMER] probing %s @ 0x%08x irq %d\n",
+                pdev->name, mem ? mem->start : 0, irq);
+    timer_init();
+    return 0;
+}
+
+static struct platform_driver omap_dmtimer_driver = {
+    .drv   = { .name = "omap-dmtimer" },
+    .probe = omap_dmtimer_probe,
+};
+
+int omap_dmtimer_driver_register(void)
+{
+    return platform_driver_register(&omap_dmtimer_driver);
+}

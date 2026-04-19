@@ -330,6 +330,19 @@ int sys_dup2(int oldfd, int newfd)
     return ret;
 }
 
+int sys_devlist(void *buf, uint32_t max_count)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #19\n\t"
+        "mov    r0, %1\n\t"
+        "mov    r1, %2\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : "r"(buf), "r"(max_count) : "r0", "r1", "r7", "memory");
+    return ret;
+}
+
 /* ============================================================
  * sys_exec - Replace current process image
  * ============================================================ */

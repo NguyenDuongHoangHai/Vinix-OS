@@ -377,3 +377,30 @@ void uart_printf(const char *fmt, ...)
     
     va_end(args);
 }
+
+/* ============================================================
+ * Platform driver wiring
+ * ============================================================ */
+
+#include "platform_device.h"
+#include "platform_drivers.h"
+
+static int omap_uart_probe(struct platform_device *pdev)
+{
+    struct resource *mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    int irq = platform_get_irq(pdev, 0);
+    uart_printf("[UART] probing %s @ 0x%08x irq %d\n",
+                pdev->name, mem ? mem->start : 0, irq);
+    uart_init();
+    return 0;
+}
+
+static struct platform_driver omap_uart_driver = {
+    .drv   = { .name = "omap-uart" },
+    .probe = omap_uart_probe,
+};
+
+int omap_uart_driver_register(void)
+{
+    return platform_driver_register(&omap_uart_driver);
+}

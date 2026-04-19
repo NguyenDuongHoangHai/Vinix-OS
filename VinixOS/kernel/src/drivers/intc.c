@@ -81,8 +81,35 @@ void intc_set_priority(uint32_t irq_num, uint32_t priority)
     if (irq_num >= 128 || priority > 63) {
         return;
     }
-    
+
     /* Set priority, route to IRQ (not FIQ) */
     uint32_t ilr = (priority & 0x3F);
     mmio_write32(INTC_BASE + INTC_ILR(irq_num), ilr);
+}
+
+/* ============================================================
+ * Platform driver wiring
+ * ============================================================ */
+
+#include "platform_device.h"
+#include "platform_drivers.h"
+#include "uart.h"
+
+static int omap_intc_probe(struct platform_device *pdev)
+{
+    struct resource *mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+    uart_printf("[INTC] probing %s @ 0x%08x\n",
+                pdev->name, mem ? mem->start : 0);
+    intc_init();
+    return 0;
+}
+
+static struct platform_driver omap_intc_driver = {
+    .drv   = { .name = "omap-intc" },
+    .probe = omap_intc_probe,
+};
+
+int omap_intc_driver_register(void)
+{
+    return platform_driver_register(&omap_intc_driver);
 }
