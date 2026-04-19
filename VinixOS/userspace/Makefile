@@ -4,10 +4,9 @@
 
 MAKEFLAGS += --no-print-directory
 
-# shell must always build first — the kernel embeds shell.bin as its
-# initial user-space payload. The rest are external ELFs users copy
-# onto the FAT32 rootfs and exec through the shell.
-APPS = shell uname hello
+# init is embedded in the kernel as the PID 1 payload; everything
+# else lives on the FAT32 rootfs and is exec'd on demand.
+APPS = init shell uname hello ls cat echo ps kill cp sleep pwd free
 
 .PHONY: all lib apps clean help $(addprefix build-, $(APPS))
 

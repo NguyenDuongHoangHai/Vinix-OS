@@ -157,7 +157,7 @@ void kernel_main(void)
     struct task_struct *idle_ptr = get_idle_task();
     scheduler_add_task(idle_ptr);
 
-    shell_task.name = "User App (Shell)";
+    shell_task.name = "init";
     shell_task.state = TASK_STATE_READY;
     shell_task.id = 0;
 

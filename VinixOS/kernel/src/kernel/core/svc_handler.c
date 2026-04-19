@@ -122,19 +122,17 @@ static int32_t sys_exit(struct svc_context *ctx)
 
     uart_printf("[SVC] Task %d exiting with status %d\n", current->id, status);
 
-    /* Keep interactive system alive:
-     * shell task is reused as an app container (exec). If that app exits,
-     * restore original shell payload and jump back to shell entrypoint. */
-    if (current && strcmp(current->name, "User App (Shell)") == 0)
+    /* PID 1 must never leave the scheduler — if init decides to
+     * exit, restart it from the embedded payload so the system
+     * keeps ticking. This is the only hook that survives when
+     * init hits a bug or tries to exit on purpose. */
+    if (current && current->pid == 1)
     {
         uint32_t payload_size = (uint32_t)&_shell_payload_end - (uint32_t)&_shell_payload_start;
         uint8_t *src = &_shell_payload_start;
         uint8_t *dst = (uint8_t *)USER_SPACE_VA;
 
-        for (uint32_t i = 0; i < payload_size; i++)
-        {
-            dst[i] = src[i];
-        }
+        for (uint32_t i = 0; i < payload_size; i++) dst[i] = src[i];
 
         ctx->r0 = 0;
         ctx->r1 = 0;
@@ -142,11 +140,11 @@ static int32_t sys_exit(struct svc_context *ctx)
         ctx->r3 = 0;
         ctx->lr = USER_SPACE_VA;
 
-        uart_printf("[SVC] Shell restarted\n");
+        uart_printf("[SVC] init (pid 1) restarted from payload\n");
         return E_OK;
     }
 
-    /* Forked child: proper exit — zombie state + wake parent in wait(). */
+    /* Any other task: proper exit — zombie + wake waiter. */
     do_exit(status);
     return 0;
 }
