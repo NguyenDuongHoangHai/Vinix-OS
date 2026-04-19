@@ -8,8 +8,8 @@ int main(int argc, char **argv)
 {
     const char *path = (argc >= 2) ? argv[1] : "/";
 
-    file_info_t files[16];
-    int n = sys_listdir(path, files, 16);
+    file_info_t files[32];
+    int n = sys_listdir(path, files, 32);
     if (n < 0) {
         printf("ls: %s: error %d\n", path, n);
         return 1;
