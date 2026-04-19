@@ -33,7 +33,12 @@ _start:
     b 1b
 2:
 
-    /* 2. Call main() */
+    /* 2. Zero argc/argv before calling main — kernel doesn't
+     * ship argv on the initial stack yet. Programs that need
+     * command-line args see argc == 0 and print usage instead
+     * of dereferencing garbage from whatever r0/r1 held. */
+    mov r0, #0
+    mov r1, #0
     bl main
 
     /* 3. Call sys_exit(status)
