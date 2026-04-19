@@ -15,7 +15,7 @@
  * Scheduler Configuration
  * ============================================================ */
 
-#define MAX_TASKS       4       /* Maximum number of tasks */
+#define MAX_TASKS       5       /* idle + init + shell + 2 dynamic slots */
 #define IDLE_TASK_ID    0       /* Idle task always at index 0 */
 
 /* ============================================================

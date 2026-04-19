@@ -104,4 +104,7 @@ int sys_listdir(const char *path, void *entries, uint32_t max_entries);
  */
 int sys_exec(const char *path);
 
+int sys_getpid(void);
+int sys_getppid(void);
+
 #endif /* _USER_SYSCALL_H */

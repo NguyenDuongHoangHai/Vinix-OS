@@ -94,6 +94,11 @@ struct task_struct {
     struct task_struct *wait_next;   /* next in a wait_queue_head */
     struct task_struct *sleep_next;  /* next in the sleep list */
     uint32_t            wake_tick;   /* jiffies at which msleep wakes */
+
+    /* Process model — populated when added to scheduler. */
+    int32_t             pid;         /* = scheduler slot index (0..4) */
+    int32_t             ppid;        /* parent pid, -1 if none */
+    int32_t             exit_status; /* exit(status) value, valid when ZOMBIE */
 };
 
 /* ============================================================

@@ -95,6 +95,11 @@ int scheduler_add_task(struct task_struct *task)
     tasks[task_count] = task;
     task->id = task_count;
     task->state = TASK_STATE_READY;
+
+    /* Process model: pid == slot index, no parent yet (fork overrides ppid). */
+    task->pid         = task_count;
+    task->ppid        = -1;
+    task->exit_status = 0;
     
     uart_printf("[SCHED] Added task %d: '%s'\n", 
                 task->id, task->name ? task->name : "(unnamed)");

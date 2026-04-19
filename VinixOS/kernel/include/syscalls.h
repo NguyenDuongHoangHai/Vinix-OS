@@ -18,6 +18,8 @@
 #define SYS_LISTDIR 9
 #define SYS_EXEC 10
 #define SYS_WRITE_FILE 11
+#define SYS_GETPID 14
+#define SYS_GETPPID 15
 
 /* ============================================================
  * Data Structures

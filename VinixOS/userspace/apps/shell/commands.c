@@ -247,6 +247,13 @@ static int cmd_write(int argc, char **argv)
     return 0;
 }
 
+static int cmd_pid(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    printf("pid=%d ppid=%d\n", sys_getpid(), sys_getppid());
+    return 0;
+}
+
 static int cmd_exec(int argc, char **argv)
 {
     if (argc < 2)
@@ -286,4 +293,5 @@ const struct command cmd_table[] = {
     {"exec", cmd_exec, "exec <file>", "Execute binary file"},
     {"echo", cmd_echo, "echo [args]", "Echo arguments"},
     {"clear", cmd_clear, "clear", "Clear screen"},
+    {"pid", cmd_pid, "pid", "Print current pid + ppid"},
     {NULL, NULL, NULL, NULL}};

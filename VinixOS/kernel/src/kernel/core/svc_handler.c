@@ -677,6 +677,18 @@ void svc_handler(struct svc_context *ctx)
         result = sys_write_file(ctx);
         break;
 
+    case SYS_GETPID: {
+        struct task_struct *t = scheduler_current_task();
+        result = t ? t->pid : -1;
+        break;
+    }
+
+    case SYS_GETPPID: {
+        struct task_struct *t = scheduler_current_task();
+        result = t ? t->ppid : -1;
+        break;
+    }
+
     default:
         uart_printf("[SVC] ERROR: Unknown Syscall %d\n", syscall_num);
         result = E_INVAL;

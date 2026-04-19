@@ -247,6 +247,28 @@ int sys_write_file(int fd, const void *buf, uint32_t len)
     return ret;
 }
 
+int sys_getpid(void)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #14\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : : "r0", "r7");
+    return ret;
+}
+
+int sys_getppid(void)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #15\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : : "r0", "r7");
+    return ret;
+}
+
 /* ============================================================
  * sys_exec - Replace current process image
  * ============================================================ */
