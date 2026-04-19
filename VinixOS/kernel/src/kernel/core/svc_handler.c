@@ -372,7 +372,13 @@ static int32_t sys_exec(struct svc_context *ctx)
     }
     /* argv itself is validated inside do_exec (it may be NULL). */
 
-    return do_exec(path, ctx, argv);
+    int rc = do_exec(path, ctx, argv);
+    if (rc < 0) return rc;
+
+    /* Success: do_exec has set ctx->r0 = argc and ctx->lr to the new
+     * entry point. Return argc so the dispatcher's final
+     * "ctx->r0 = result" is a no-op instead of overwriting argc. */
+    return (int32_t)ctx->r0;
 }
 
 /* ============================================================
