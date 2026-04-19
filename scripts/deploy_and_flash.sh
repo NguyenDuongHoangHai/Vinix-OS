@@ -13,7 +13,12 @@ set -e
 
 DEVICE=${1:-/dev/sda}
 PART="${DEVICE}1"
-MOUNT=/media/$USER/VINIX
+
+# When invoked via sudo, $USER is 'root' but the card is mounted
+# under the logged-in user's /media path. Prefer SUDO_USER so the
+# copy step finds the right directory either way.
+REAL_USER="${SUDO_USER:-$USER}"
+MOUNT=/media/$REAL_USER/VINIX
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPDIR="$(dirname "$SCRIPT_DIR")"
