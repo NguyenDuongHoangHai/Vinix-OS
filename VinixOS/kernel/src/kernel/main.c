@@ -24,10 +24,12 @@
 extern void sync_selftest(void);
 #include "vfs.h"
 #include "devfs.h"
+#include "procfs.h"
 #include "mmc.h"
 #include "mbr.h"
 #include "fat32.h"
 #include "buffer_cache.h"
+#include "selftest.h"
 #include "syscalls.h"
 #include "types.h"
 #include "i2c.h"
@@ -134,6 +136,11 @@ void kernel_main(void)
         while (1);
     }
 
+    if (vfs_mount("/proc", procfs_init()) != E_OK) {
+        uart_printf("[BOOT] ERROR: Failed to mount procfs at /proc\n");
+        while (1);
+    }
+
     /* 1.7 Load User Payload */
     uint32_t payload_size = (uint32_t)&_shell_payload_end - (uint32_t)&_shell_payload_start;
     uart_printf("[BOOT] Loading User App Payload to 0x%x (Size: %d bytes)\n", USER_SPACE_VA, payload_size);
@@ -171,6 +178,9 @@ void kernel_main(void)
 
     /* 4. Now reconfigure timer for scheduler (10ms auto-reload + IRQ) */
     omap_dmtimer_driver_register();
+
+    /* Final gate: integration selftest (bcache, procfs). Panics on fail. */
+    selftest_run_all();
 
     uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
 

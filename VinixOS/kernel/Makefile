@@ -33,9 +33,11 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                page_alloc.o slab.o vmm.o \
                atomic.o spinlock.o wait_queue.o sleep.o sync_selftest.o \
                fork.o wait.o exec.o \
-               char_dev.o devfs.o \
+               char_dev.o devfs.o procfs.o \
+               selftest.o \
                block.o buffer_cache.o \
                driver_device.o driver_platform.o \
+               format.o \
                platform_memmap.o platform_devices.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
@@ -222,11 +224,20 @@ $(BUILD_DIR)/fat32.o: $(SRC)/kernel/fs/fat32.c | $(BUILD_DIR)
 $(BUILD_DIR)/devfs.o: $(SRC)/kernel/fs/devfs.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/procfs.o: $(SRC)/kernel/fs/procfs.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/selftest.o: $(SRC)/kernel/test/selftest.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD_DIR)/char_dev.o: $(SRC)/kernel/dev/char_dev.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - libc
 $(BUILD_DIR)/string.o: libc/src/string.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/format.o: libc/src/format.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 
