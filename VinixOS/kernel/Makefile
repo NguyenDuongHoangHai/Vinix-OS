@@ -34,6 +34,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                atomic.o spinlock.o wait_queue.o sleep.o sync_selftest.o \
                fork.o wait.o exec.o \
                char_dev.o devfs.o \
+               block.o buffer_cache.o \
                driver_device.o driver_platform.o \
                platform_memmap.o platform_devices.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
@@ -202,6 +203,13 @@ $(BUILD_DIR)/driver_device.o: $(SRC)/kernel/driver/device.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/driver_platform.o: $(SRC)/kernel/driver/platform.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# C files - Block layer
+$(BUILD_DIR)/block.o: $(SRC)/kernel/block/block.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/buffer_cache.o: $(SRC)/kernel/block/buffer_cache.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - Filesystem

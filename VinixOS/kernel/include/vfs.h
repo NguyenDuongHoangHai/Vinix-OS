@@ -38,6 +38,10 @@ struct vfs_operations {
     int (*get_file_count)(void);
     int (*get_file_info)(int index, char *name_out, uint32_t *size_out);
 
+    /* Enumerate a directory — called with an fs-relative path.
+     * Empty path means the mount's root. Optional. */
+    int (*listdir)(const char *path, void *entries, uint32_t max);
+
     /* Write path — optional; NULL means filesystem is read-only */
     int (*create)(const char *name);
     int (*write)(int file_index, uint32_t offset, const void *buf, uint32_t len);

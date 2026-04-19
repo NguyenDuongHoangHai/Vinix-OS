@@ -96,11 +96,34 @@ static int devfs_get_file_info(int index, char *name_out, uint32_t *size_out)
     return E_OK;
 }
 
+static int devfs_listdir(const char *path, void *entries, uint32_t max)
+{
+    /* devfs is flat — the only valid path is the mount root. */
+    if (path && *path != '\0') return E_NOENT;
+
+    file_info_t *out = (file_info_t *)entries;
+    uint32_t written = 0;
+    int total = char_dev_count();
+
+    for (int i = 0; i < total && written < max; i++) {
+        const struct char_device *d = char_dev_at((uint32_t)i);
+        if (!d) continue;
+
+        int k = 0;
+        while (d->name[k] && k < 31) { out[written].name[k] = d->name[k]; k++; }
+        out[written].name[k] = '\0';
+        out[written].size = 0;
+        written++;
+    }
+    return (int)written;
+}
+
 static struct vfs_operations devfs_ops = {
     .lookup         = devfs_lookup,
     .read           = devfs_read,
     .get_file_count = devfs_get_file_count,
     .get_file_info  = devfs_get_file_info,
+    .listdir        = devfs_listdir,
     .create         = 0,
     .write          = devfs_write,
     .truncate       = 0,

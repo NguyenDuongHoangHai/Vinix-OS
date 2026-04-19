@@ -9,16 +9,17 @@
  *   - Up to FAT32_MAX_FILES files in root
  *   - Cluster chain traversal for multi-cluster read/write
  *
- * INVARIANT: sector_buf and fat_cache are used serially. No helper
- * may recursively reuse sector_buf mid-computation — callers must
- * finish with the buffer before invoking another helper that
- * touches it.
+ * INVARIANT: all sector I/O goes through the buffer cache. The
+ * static sector_buf is only used for scratch during BPB parse
+ * and initial root-dir scan — before any concurrent reader
+ * could exist.
  * ============================================================ */
 
 #include "types.h"
 #include "fat32.h"
 #include "vfs.h"
-#include "mmc.h"
+#include "block.h"
+#include "buffer_cache.h"
 #include "uart.h"
 #include "string.h"
 #include "syscalls.h"
@@ -26,7 +27,6 @@
 #define FAT32_SECTOR_SZ             512
 #define FAT32_DIR_ENTRY_SZ          32
 #define FAT32_MAX_FILES             32
-#define FAT32_FAT_CACHE_SECTORS     4
 
 /* Chain terminator — any value ≥ this marks end-of-chain */
 #define FAT32_EOC                   0x0FFFFFF8
@@ -93,9 +93,19 @@ struct fat32_file {
 static struct fat32_file file_table[FAT32_MAX_FILES];
 static int               file_count;
 
-static uint8_t  sector_buf[FAT32_SECTOR_SZ];
-static uint8_t  fat_cache[FAT32_FAT_CACHE_SECTORS * FAT32_SECTOR_SZ];
-static uint32_t fat_cache_base_sector;   /* 0xFFFFFFFF = cache invalid */
+static struct block_device *fs_bdev = 0;
+
+/* Scratch buffer for bootstrap reads (BPB parse + initial scan). */
+static uint8_t sector_buf[FAT32_SECTOR_SZ];
+
+static int fat_read_sector(uint32_t lba, void *dst)
+{
+    struct buffer_head *bh = bread(fs_bdev, lba);
+    if (!bh) return E_FAIL;
+    memcpy(dst, bh->data, FAT32_SECTOR_SZ);
+    brelse(bh);
+    return E_OK;
+}
 
 static uint16_t rd16(const uint8_t *p)
 {
@@ -122,27 +132,21 @@ static uint32_t cluster_to_sector(uint32_t cluster)
 }
 
 /* Returns the raw FAT entry for a cluster (masked to 28 bits).
- * A small sector window is cached to amortize MMC reads across walks. */
+ * Sector caching is handled transparently by the buffer cache. */
 static uint32_t fat_next_cluster(uint32_t cur)
 {
-    uint32_t fat_byte_off = cur * 4;
+    uint32_t fat_byte_off   = cur * 4;
     uint32_t fat_sector_idx = fat_byte_off / FAT32_SECTOR_SZ;
-    uint32_t sector_off = fat_byte_off % FAT32_SECTOR_SZ;
-    uint32_t abs_sector = fs.fat_lba + fat_sector_idx;
+    uint32_t sector_off     = fat_byte_off % FAT32_SECTOR_SZ;
+    uint32_t abs_sector     = fs.fat_lba + fat_sector_idx;
 
-    if (fat_cache_base_sector == 0xFFFFFFFF ||
-        abs_sector < fat_cache_base_sector ||
-        abs_sector >= fat_cache_base_sector + FAT32_FAT_CACHE_SECTORS) {
-
-        if (mmc_read_sectors(abs_sector, FAT32_FAT_CACHE_SECTORS, fat_cache) != E_OK) {
-            uart_printf("[FAT32] ERROR: FAT read failed at sector %u\n", abs_sector);
-            return FAT32_EOC;
-        }
-        fat_cache_base_sector = abs_sector;
+    struct buffer_head *bh = bread(fs_bdev, abs_sector);
+    if (!bh) {
+        uart_printf("[FAT32] ERROR: FAT read failed at sector %u\n", abs_sector);
+        return FAT32_EOC;
     }
-
-    uint32_t cache_offset = (abs_sector - fat_cache_base_sector) * FAT32_SECTOR_SZ + sector_off;
-    uint32_t entry = rd32(&fat_cache[cache_offset]);
+    uint32_t entry = rd32(&bh->data[sector_off]);
+    brelse(bh);
 
     /* Top 4 bits are reserved per spec — must be ignored on read. */
     return entry & 0x0FFFFFFF;
@@ -230,7 +234,7 @@ static bool raw_name_eq(const uint8_t a[11], const uint8_t b[11])
 
 static int parse_bpb(void)
 {
-    if (mmc_read_sectors(fs.part_lba, 1, sector_buf) != E_OK) {
+    if (fat_read_sector(fs.part_lba, sector_buf) != E_OK) {
         uart_printf("[FAT32] ERROR: Failed to read BPB\n");
         return E_FAIL;
     }
@@ -284,7 +288,7 @@ static int scan_root_dir(void)
         for (s = 0; s < fs.sectors_per_cluster && !done; s++) {
             uint32_t abs_sector = base_sector + s;
 
-            if (mmc_read_sectors(abs_sector, 1, sector_buf) != E_OK) {
+            if (fat_read_sector(abs_sector, sector_buf) != E_OK) {
                 uart_printf("[FAT32] ERROR: Failed to read dir sector %u\n", abs_sector);
                 return E_FAIL;
             }
@@ -353,8 +357,13 @@ int fat32_init(uint32_t partition_lba)
 
     uart_printf("[FAT32] Initializing at partition LBA %u...\n", partition_lba);
 
+    fs_bdev = block_find("mmc0");
+    if (!fs_bdev) {
+        uart_printf("[FAT32] ERROR: mmc0 block device not registered\n");
+        return E_FAIL;
+    }
+
     fs.part_lba = partition_lba;
-    fat_cache_base_sector = 0xFFFFFFFF;
     file_count = 0;
     for (i = 0; i < FAT32_MAX_FILES; i++) {
         file_table[i].in_use = false;
@@ -375,20 +384,155 @@ int fat32_init(uint32_t partition_lba)
  * VFS Operations — Read Path
  * ============================================================ */
 
-static int fat32_lookup(const char *name)
+struct fat32_resolve {
+    uint32_t cluster;
+    uint32_t size;
+    bool     is_dir;
+    uint32_t entry_lba;
+    uint32_t entry_off;
+    uint8_t  raw_name[11];
+    uint8_t  nt_res;
+};
+
+/* Scan a single directory (identified by first_cluster) for an entry
+ * whose 11-byte raw name matches `query`. Returns E_OK on hit, E_NOENT
+ * on exhaustion, E_FAIL on I/O error. */
+static int dir_lookup_component(uint32_t dir_cluster, const uint8_t query[11],
+                                 struct fat32_resolve *out)
 {
-    uint8_t query[11];
-    int i;
+    uint32_t cluster = dir_cluster;
 
-    name_to_raw(name, query);
+    while (cluster >= 2 && cluster < FAT32_EOC) {
+        uint32_t base_sector = cluster_to_sector(cluster);
 
-    for (i = 0; i < file_count; i++) {
-        if (file_table[i].in_use && raw_name_eq(file_table[i].raw_name, query)) {
+        for (uint32_t s = 0; s < fs.sectors_per_cluster; s++) {
+            uint32_t abs_sector = base_sector + s;
+            struct buffer_head *bh = bread(fs_bdev, abs_sector);
+            if (!bh) return E_FAIL;
+
+            for (uint32_t off = 0; off < FAT32_SECTOR_SZ; off += FAT32_DIR_ENTRY_SZ) {
+                uint8_t *entry = &bh->data[off];
+                uint8_t first  = entry[DIR_Name];
+                uint8_t attr   = entry[DIR_Attr];
+
+                if (first == DIR_ENTRY_END) { brelse(bh); return E_NOENT; }
+                if (first == DIR_ENTRY_DELETED) continue;
+                if (attr == ATTR_LONG_NAME)     continue;
+                if (attr & ATTR_VOLUME_ID)      continue;
+
+                if (raw_name_eq(&entry[DIR_Name], query)) {
+                    uint16_t hi = rd16(&entry[DIR_FstClusHI]);
+                    uint16_t lo = rd16(&entry[DIR_FstClusLO]);
+                    out->cluster   = ((uint32_t)hi << 16) | (uint32_t)lo;
+                    out->size      = rd32(&entry[DIR_FileSize]);
+                    out->is_dir    = (attr & ATTR_DIRECTORY) != 0;
+                    out->entry_lba = abs_sector;
+                    out->entry_off = off;
+                    for (int k = 0; k < 11; k++) out->raw_name[k] = entry[DIR_Name + k];
+                    out->nt_res = entry[DIR_NTRes];
+                    brelse(bh);
+                    return E_OK;
+                }
+            }
+            brelse(bh);
+        }
+
+        cluster = fat_next_cluster(cluster);
+    }
+    return E_NOENT;
+}
+
+/* Walks a slash-separated path component-by-component starting from
+ * the root directory, descending through subdirectories until the
+ * tail is resolved (or missing). */
+static int resolve_path(const char *path, struct fat32_resolve *out)
+{
+    while (*path == '/') path++;
+
+    if (*path == '\0') {
+        /* Root */
+        out->cluster   = fs.root_cluster;
+        out->size      = 0;
+        out->is_dir    = true;
+        out->entry_lba = 0;
+        out->entry_off = 0;
+        return E_OK;
+    }
+
+    uint32_t cur_cluster = fs.root_cluster;
+    bool     cur_is_dir  = true;
+
+    while (*path) {
+        if (!cur_is_dir) return E_NOENT;
+
+        /* Extract one component. */
+        const char *sep = path;
+        while (*sep && *sep != '/') sep++;
+
+        /* FAT32 MVP: 8.3 only. Copy component into a small buffer and
+         * build the raw 11-byte form. */
+        char comp[13];
+        uint32_t clen = (uint32_t)(sep - path);
+        if (clen > 12) clen = 12;
+        for (uint32_t i = 0; i < clen; i++) comp[i] = path[i];
+        comp[clen] = '\0';
+
+        uint8_t query[11];
+        name_to_raw(comp, query);
+
+        int rc = dir_lookup_component(cur_cluster, query, out);
+        if (rc != E_OK) return rc;
+
+        cur_cluster = out->cluster;
+        cur_is_dir  = out->is_dir;
+
+        path = sep;
+        while (*path == '/') path++;
+    }
+
+    return E_OK;
+}
+
+/* Cache the result of a path resolution in file_table so read/write
+ * can look up by index. De-dupes by (entry_lba, entry_off) — reopens
+ * of the same file return the same slot. */
+static int cache_file(const struct fat32_resolve *r)
+{
+    for (int i = 0; i < file_count; i++) {
+        if (file_table[i].in_use &&
+            file_table[i].dir_entry_lba == r->entry_lba &&
+            file_table[i].dir_entry_offset == r->entry_off) {
+            /* Refresh — size may have grown since last open. */
+            file_table[i].first_cluster = r->cluster;
+            file_table[i].size          = r->size;
             return i;
         }
     }
 
-    return E_NOENT;
+    if (file_count >= FAT32_MAX_FILES) {
+        uart_printf("[FAT32] WARNING: file_table full\n");
+        return E_MFILE;
+    }
+
+    struct fat32_file *f = &file_table[file_count];
+    f->in_use = true;
+    for (int k = 0; k < 11; k++) f->raw_name[k] = r->raw_name[k];
+    f->nt_res           = r->nt_res;
+    raw_to_name(f->raw_name, f->nt_res, f->name);
+    f->first_cluster    = r->cluster;
+    f->size             = r->size;
+    f->dir_entry_lba    = r->entry_lba;
+    f->dir_entry_offset = r->entry_off;
+    return file_count++;
+}
+
+static int fat32_lookup(const char *path)
+{
+    struct fat32_resolve r;
+    int rc = resolve_path(path, &r);
+    if (rc != E_OK) return rc;
+    if (r.is_dir) return E_NOENT;  /* vfs_open on dirs isn't supported */
+    return cache_file(&r);
 }
 
 static uint32_t walk_chain(uint32_t first_cluster, uint32_t cluster_skip)
@@ -435,12 +579,12 @@ static int fat32_read(int file_index, uint32_t offset, void *buf, uint32_t len)
         uint32_t intra_sec   = intra_cluster % fs.bytes_per_sector;
 
         while (sec_in_clus < fs.sectors_per_cluster && remaining > 0) {
-            if (mmc_read_sectors(base_sector + sec_in_clus, 1, sector_buf) != E_OK) {
-                return E_FAIL;
-            }
+            struct buffer_head *bh = bread(fs_bdev, base_sector + sec_in_clus);
+            if (!bh) return E_FAIL;
 
             uint32_t chunk = fat32_min(remaining, FAT32_SECTOR_SZ - intra_sec);
-            memcpy(out + written, sector_buf + intra_sec, chunk);
+            memcpy(out + written, bh->data + intra_sec, chunk);
+            brelse(bh);
 
             written   += chunk;
             remaining -= chunk;
@@ -478,47 +622,93 @@ static int fat32_get_file_info(int index, char *name_out, uint32_t *size_out)
     return E_OK;
 }
 
+/* Enumerate entries in a directory located by fs-relative `path`.
+ * Root is "", everything else walks subdirectories. */
+static int fat32_listdir(const char *path, void *entries, uint32_t max)
+{
+    file_info_t *out = (file_info_t *)entries;
+    uint32_t dir_cluster;
+
+    if (!path || *path == '\0') {
+        dir_cluster = fs.root_cluster;
+    } else {
+        struct fat32_resolve r;
+        int rc = resolve_path(path, &r);
+        if (rc != E_OK) return rc;
+        if (!r.is_dir) return E_NOENT;
+        dir_cluster = r.cluster;
+    }
+
+    uint32_t count = 0;
+    uint32_t cluster = dir_cluster;
+    bool     done    = false;
+
+    while (!done && cluster >= 2 && cluster < FAT32_EOC && count < max) {
+        uint32_t base_sector = cluster_to_sector(cluster);
+
+        for (uint32_t s = 0; s < fs.sectors_per_cluster && !done && count < max; s++) {
+            uint32_t abs_sector = base_sector + s;
+            struct buffer_head *bh = bread(fs_bdev, abs_sector);
+            if (!bh) return E_FAIL;
+
+            for (uint32_t off = 0;
+                 off < FAT32_SECTOR_SZ && count < max;
+                 off += FAT32_DIR_ENTRY_SZ) {
+
+                uint8_t *entry = &bh->data[off];
+                uint8_t first  = entry[DIR_Name];
+                uint8_t attr   = entry[DIR_Attr];
+
+                if (first == DIR_ENTRY_END)    { done = true; break; }
+                if (first == DIR_ENTRY_DELETED) continue;
+                if (attr == ATTR_LONG_NAME)     continue;
+                if (attr & ATTR_VOLUME_ID)      continue;
+                if (first == '.')               continue;  /* skip . and .. */
+
+                raw_to_name(&entry[DIR_Name], entry[DIR_NTRes], out[count].name);
+                out[count].size = (attr & ATTR_DIRECTORY) ? 0
+                                                          : rd32(&entry[DIR_FileSize]);
+                count++;
+            }
+            brelse(bh);
+        }
+
+        if (done) break;
+        cluster = fat_next_cluster(cluster);
+    }
+
+    return (int)count;
+}
+
 /* ============================================================
  * Write Path
  * ============================================================ */
 
-static int write_sector(uint32_t lba, const void *buf)
-{
-    return mmc_write_sectors(lba, 1, buf);
-}
-
 /* Writes must land in ALL num_fats copies, otherwise host OSes
- * detect mismatch on next mount and "repair" unpredictably.
- * Invalidates the read cache since contents just changed. */
+ * detect mismatch on next mount and "repair" unpredictably. */
 static int fat_set_entry(uint32_t cluster, uint32_t value)
 {
     uint32_t fat_byte_off   = cluster * 4;
     uint32_t fat_sector_idx = fat_byte_off / FAT32_SECTOR_SZ;
     uint32_t sec_off        = fat_byte_off % FAT32_SECTOR_SZ;
-    uint32_t f;
 
-    for (f = 0; f < fs.num_fats; f++) {
+    for (uint32_t f = 0; f < fs.num_fats; f++) {
         uint32_t abs_sector = fs.fat_lba + f * fs.fat_sectors + fat_sector_idx;
 
-        if (mmc_read_sectors(abs_sector, 1, sector_buf) != E_OK) {
-            return E_FAIL;
-        }
+        struct buffer_head *bh = bread(fs_bdev, abs_sector);
+        if (!bh) return E_FAIL;
 
         /* Preserve the top 4 reserved bits per FAT32 spec */
-        uint32_t old = rd32(&sector_buf[sec_off]);
+        uint32_t old = rd32(&bh->data[sec_off]);
         uint32_t new_val = (old & 0xF0000000U) | (value & 0x0FFFFFFFU);
 
-        sector_buf[sec_off + 0] = (uint8_t)(new_val);
-        sector_buf[sec_off + 1] = (uint8_t)(new_val >> 8);
-        sector_buf[sec_off + 2] = (uint8_t)(new_val >> 16);
-        sector_buf[sec_off + 3] = (uint8_t)(new_val >> 24);
-
-        if (write_sector(abs_sector, sector_buf) != E_OK) {
-            return E_FAIL;
-        }
+        bh->data[sec_off + 0] = (uint8_t)(new_val);
+        bh->data[sec_off + 1] = (uint8_t)(new_val >> 8);
+        bh->data[sec_off + 2] = (uint8_t)(new_val >> 16);
+        bh->data[sec_off + 3] = (uint8_t)(new_val >> 24);
+        bmark_dirty(bh);
+        brelse(bh);
     }
-
-    fat_cache_base_sector = 0xFFFFFFFF;
     return E_OK;
 }
 
@@ -558,11 +748,10 @@ static int fat_free_chain(uint32_t start)
  * entry on disk. Skipping this leaks clusters on reboot. */
 static int update_dir_entry(const struct fat32_file *f)
 {
-    if (mmc_read_sectors(f->dir_entry_lba, 1, sector_buf) != E_OK) {
-        return E_FAIL;
-    }
+    struct buffer_head *bh = bread(fs_bdev, f->dir_entry_lba);
+    if (!bh) return E_FAIL;
 
-    uint8_t *entry = &sector_buf[f->dir_entry_offset];
+    uint8_t *entry = &bh->data[f->dir_entry_offset];
 
     uint16_t hi = (uint16_t)(f->first_cluster >> 16);
     uint16_t lo = (uint16_t)(f->first_cluster & 0xFFFF);
@@ -576,7 +765,9 @@ static int update_dir_entry(const struct fat32_file *f)
     entry[DIR_FileSize + 2] = (uint8_t)(f->size >> 16);
     entry[DIR_FileSize + 3] = (uint8_t)(f->size >> 24);
 
-    return write_sector(f->dir_entry_lba, sector_buf);
+    bmark_dirty(bh);
+    brelse(bh);
+    return E_OK;
 }
 
 static int fat32_write(int file_index, uint32_t offset, const void *buf, uint32_t len)
@@ -630,20 +821,11 @@ static int fat32_write(int file_index, uint32_t offset, const void *buf, uint32_
             uint32_t abs_sector = base_sector + sec_in_clus;
             uint32_t chunk = fat32_min(remaining, FAT32_SECTOR_SZ - intra_sec);
 
-            if (chunk == FAT32_SECTOR_SZ) {
-                /* Bounce through sector_buf: caller buf may not be 32-bit aligned */
-                memcpy(sector_buf, in + written, FAT32_SECTOR_SZ);
-            } else {
-                /* Partial sector: read-modify-write to preserve surrounding bytes */
-                if (mmc_read_sectors(abs_sector, 1, sector_buf) != E_OK) {
-                    return E_FAIL;
-                }
-                memcpy(sector_buf + intra_sec, in + written, chunk);
-            }
-
-            if (write_sector(abs_sector, sector_buf) != E_OK) {
-                return E_FAIL;
-            }
+            struct buffer_head *bh = bread(fs_bdev, abs_sector);
+            if (!bh) return E_FAIL;
+            memcpy(bh->data + intra_sec, in + written, chunk);
+            bmark_dirty(bh);
+            brelse(bh);
 
             written   += chunk;
             remaining -= chunk;
@@ -722,44 +904,36 @@ static int fat32_create(const char *name)
         for (s = 0; s < fs.sectors_per_cluster; s++) {
             uint32_t abs_sector = base_sector + s;
 
-            if (mmc_read_sectors(abs_sector, 1, sector_buf) != E_OK) {
-                return E_FAIL;
-            }
+            struct buffer_head *bh = bread(fs_bdev, abs_sector);
+            if (!bh) return E_FAIL;
 
             uint32_t off;
             for (off = 0; off < FAT32_SECTOR_SZ; off += FAT32_DIR_ENTRY_SZ) {
-                uint8_t first = sector_buf[off];
+                uint8_t first = bh->data[off];
                 if (first != DIR_ENTRY_END && first != DIR_ENTRY_DELETED) {
                     continue;
                 }
 
-                uint8_t *entry = &sector_buf[off];
+                uint8_t *entry = &bh->data[off];
                 int k;
 
-                for (k = 0; k < FAT32_DIR_ENTRY_SZ; k++) {
-                    entry[k] = 0;
-                }
-                for (k = 0; k < 11; k++) {
-                    entry[DIR_Name + k] = raw[k];
-                }
+                for (k = 0; k < FAT32_DIR_ENTRY_SZ; k++) entry[k] = 0;
+                for (k = 0; k < 11; k++) entry[DIR_Name + k] = raw[k];
                 entry[DIR_Attr]  = ATTR_ARCHIVE;
                 entry[DIR_NTRes] = nt_res;
 
                 /* Consuming an END marker — push it forward so the chain
                  * terminator stays after the newly created entry. */
                 if (first == DIR_ENTRY_END && (off + FAT32_DIR_ENTRY_SZ) < FAT32_SECTOR_SZ) {
-                    sector_buf[off + FAT32_DIR_ENTRY_SZ] = DIR_ENTRY_END;
+                    bh->data[off + FAT32_DIR_ENTRY_SZ] = DIR_ENTRY_END;
                 }
 
-                if (write_sector(abs_sector, sector_buf) != E_OK) {
-                    return E_FAIL;
-                }
+                bmark_dirty(bh);
+                brelse(bh);
 
                 struct fat32_file *f = &file_table[file_count];
                 f->in_use = true;
-                for (k = 0; k < 11; k++) {
-                    f->raw_name[k] = raw[k];
-                }
+                for (k = 0; k < 11; k++) f->raw_name[k] = raw[k];
                 f->nt_res = nt_res;
                 raw_to_name(raw, nt_res, f->name);
                 f->first_cluster    = 0;
@@ -772,6 +946,7 @@ static int fat32_create(const char *name)
                 uart_printf("[FAT32] Created file: %s (idx=%d)\n", f->name, new_idx);
                 return new_idx;
             }
+            brelse(bh);
         }
 
         cluster = fat_next_cluster(cluster);
@@ -810,6 +985,7 @@ static struct vfs_operations fat32_ops = {
     .read           = fat32_read,
     .get_file_count = fat32_get_file_count,
     .get_file_info  = fat32_get_file_info,
+    .listdir        = fat32_listdir,
     .create         = fat32_create,
     .write          = fat32_write,
     .truncate       = fat32_truncate

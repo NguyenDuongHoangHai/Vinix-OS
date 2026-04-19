@@ -253,22 +253,25 @@ int vfs_dup2(int oldfd, int newfd)
 
 int vfs_listdir(const char *path, void *entries, uint32_t max_entries)
 {
-    file_info_t *out = (file_info_t *)entries;
-
     const char *rest;
     struct vfs_operations *fs_ops = resolve(path, &rest);
     if (!fs_ops) return E_NOENT;
 
-    /* We only enumerate the root of the mount. A non-empty tail
-     * means the caller asked for a subdirectory, which FAT32 MVP
-     * does not support yet. */
-    if (rest && *rest != '\0') return E_NOENT;
+    if (fs_ops->listdir) {
+        return fs_ops->listdir(rest ? rest : "", entries, max_entries);
+    }
 
-    int file_count = fs_ops->get_file_count();
-    if (file_count < 0) return file_count;
+    /* Fallback for filesystems that still expose the legacy
+     * get_file_count + get_file_info API (root-only). */
+    if (rest && *rest != '\0') return E_NOENT;
+    if (!fs_ops->get_file_count || !fs_ops->get_file_info) return E_NOENT;
+
+    file_info_t *out = (file_info_t *)entries;
+    int total = fs_ops->get_file_count();
+    if (total < 0) return total;
 
     int count = 0;
-    for (int i = 0; i < file_count && count < (int)max_entries; i++) {
+    for (int i = 0; i < total && count < (int)max_entries; i++) {
         if (fs_ops->get_file_info(i, out[count].name, &out[count].size) == E_OK) {
             count++;
         }

@@ -27,6 +27,7 @@ extern void sync_selftest(void);
 #include "mmc.h"
 #include "mbr.h"
 #include "fat32.h"
+#include "buffer_cache.h"
 #include "syscalls.h"
 #include "types.h"
 #include "i2c.h"
@@ -104,6 +105,7 @@ void kernel_main(void)
 
     /* 1.6 Initialize VFS and mount FAT32 rootfs from SD card */
     uart_printf("[BOOT] Initializing Virtual File System...\n");
+    bcache_init();
     vfs_init();
 
     if (omap_hsmmc_driver_register() != E_OK) {
