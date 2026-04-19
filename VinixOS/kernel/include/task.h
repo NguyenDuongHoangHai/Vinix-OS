@@ -78,14 +78,22 @@ struct task_context {
 
 /**
  * Task Control Block - complete task descriptor
+ *
+ * Fields up to `id` have frozen offsets: assembly (context_switch.S)
+ * reads `context.sp` / `context.sp_usr`. New fields go AFTER `id`.
  */
 struct task_struct {
-    struct task_context context;    /* Saved CPU state (64 bytes) */
+    struct task_context context;    /* Saved CPU state (72 bytes) */
     void *stack_base;               /* Pointer to stack bottom */
     uint32_t stack_size;            /* Stack size in bytes */
-    uint32_t state;                 /* Task state (READY/RUNNING/BLOCKED) */
-    const char *name;               /* Task name (for debugging) */
+    uint32_t state;                 /* TASK_STATE_* */
+    const char *name;               /* Debug name */
     uint32_t id;                    /* Task ID */
+
+    /* Sync — per-task linked-list slots + sleep deadline. */
+    struct task_struct *wait_next;   /* next in a wait_queue_head */
+    struct task_struct *sleep_next;  /* next in the sleep list */
+    uint32_t            wake_tick;   /* jiffies at which msleep wakes */
 };
 
 /* ============================================================

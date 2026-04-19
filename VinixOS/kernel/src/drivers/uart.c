@@ -10,7 +10,11 @@
 #include "cpu.h"
 #include "irq.h"
 #include "intc.h"
+#include "wait_queue.h"
 #include <stdarg.h>
+
+/* Waiters blocked in sys_read waiting for RX data. */
+wait_queue_head_t uart_rx_wq = { .head = 0 };
 
 /* Hardware Definitions */
 #define UART0_BASE      0x44E09000
@@ -124,6 +128,9 @@ static void uart_rx_irq_handler(void *data)
         
         rx_buffer.data[rx_buffer.head] = ch;
         rx_buffer.head = next_head;
+
+        /* Wake the first sys_read waiter per byte — lets shell proceed. */
+        wake_up(&uart_rx_wq);
     }
 }
 

@@ -31,6 +31,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o string.o \
                mmc.o mbr.o fat32.o \
                page_alloc.o slab.o vmm.o \
+               atomic.o spinlock.o wait_queue.o sleep.o sync_selftest.o \
                platform_memmap.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
@@ -158,6 +159,22 @@ $(BUILD_DIR)/slab.o: $(SRC)/kernel/mm/slab.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/vmm.o: $(SRC)/kernel/mm/vmm.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# C files - Synchronization primitives
+$(BUILD_DIR)/atomic.o: $(SRC)/kernel/sync/atomic.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/spinlock.o: $(SRC)/kernel/sync/spinlock.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/wait_queue.o: $(SRC)/kernel/sync/wait_queue.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/sleep.o: $(SRC)/kernel/sync/sleep.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/sync_selftest.o: $(SRC)/kernel/sync/sync_selftest.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - Platform (BBB)

@@ -6,6 +6,7 @@
 
 #include "scheduler.h"
 #include "task.h"
+#include "sleep.h"
 #include "uart.h"
 #include "cpu.h"
 #include "string.h"
@@ -173,16 +174,14 @@ volatile bool need_reschedule = false;
  */
 void scheduler_tick(void)
 {
-    /* Ignore ticks before scheduler starts */
-    /* Ignore ticks before scheduler starts */
     if (!scheduler_started) {
         return;
     }
-    
-    /* 
-     * IRQ-safe operation: Just set flag
-     * Tasks will check this and call scheduler_yield()
-     */
+
+    /* Walk the sleep list, wake anyone whose wake_tick has passed. */
+    sleep_tick();
+
+    /* IRQ-safe: just flag. Tasks pick this up via scheduler_yield(). */
     need_reschedule = true;
 }
 
@@ -335,8 +334,8 @@ void scheduler_yield(void)
         }
     }
     
-    /* Update states */
-    if (prev_task->state != TASK_STATE_ZOMBIE) {
+    /* Keep BLOCKED and ZOMBIE as-is; only a RUNNING task returns to READY. */
+    if (prev_task->state == TASK_STATE_RUNNING) {
         prev_task->state = TASK_STATE_READY;
     }
     next_task->state = TASK_STATE_RUNNING;

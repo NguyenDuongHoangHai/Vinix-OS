@@ -15,7 +15,11 @@
 #include "page_alloc.h"
 #include "slab.h"
 #include "vmm.h"
+#include "atomic.h"
+#include "spinlock.h"
 #include "cpu.h"
+
+extern void sync_selftest(void);
 #include "vfs.h"
 #include "mmc.h"
 #include "mbr.h"
@@ -70,6 +74,8 @@ void kernel_main(void)
 
     vmm_init();
     vmm_selftest();
+
+    sync_selftest();
 
     /* Graphics subsystem: pixel clock must be running before TDA can output TMDS.
      * Unlike QNX (where U-Boot already started LCDC), we're bare-metal —

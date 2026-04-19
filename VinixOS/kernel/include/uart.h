@@ -132,4 +132,8 @@ void uart_rx_clear(void);
  */
 uint32_t uart_get_irq_fire_count(void);
 
+/* sys_read waits on this; uart_rx_irq_handler wakes it per byte. */
+#include "wait_queue.h"
+extern wait_queue_head_t uart_rx_wq;
+
 #endif /* UART_H */

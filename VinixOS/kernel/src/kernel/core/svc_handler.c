@@ -361,43 +361,19 @@ static int32_t sys_read(struct svc_context *ctx)
     if (len == 0)
         return 0;
 
-    /* 2. Logic: Read 1 byte (NON-BLOCKING)
-     * Only supporting len=1 for now (getc style) to keep it simple.
-     *
-     * CRITICAL DESIGN DECISION:
-     * We implement NON-BLOCKING I/O instead of blocking in kernel.
-     *
-     * WHY NOT BLOCK IN KERNEL?
-     * Calling scheduler_yield() from within an SVC handler is DANGEROUS:
-     * - We're in exception context with SVC stack frame
-     * - Context switch expects normal task stack frame
-     * - Stack corruption and crashes result
-     *
-     * PROPER BLOCKING I/O requires:
-     * - Task sleep/wake mechanism
-     * - Wait queues
-     * - IRQ-driven wakeup
-     *
-     * Current implementation uses NON-BLOCKING I/O:
-     * - Return 0 if no data available
-     * - User code must call sys_yield() and retry
-     */
+    /* Blocking read: wait_event() parks the task in uart_rx_wq until
+     * the RX IRQ handler calls wake_up(). Only len=1 is supported. */
     char *c_buf = (char *)buf;
-    int c;
 
-    c = uart_getc();
+    wait_event(uart_rx_wq, uart_rx_available() > 0);
+
+    int c = uart_getc();
     if (c == -1)
     {
-        // uart_printf("[SYS_READ] No data, returning 0\n");
-        return 0; /* No data available - user should yield and retry */
+        return 0;
     }
-
-    // uart_printf("[SYS_READ] Got char: 0x%02x ('%c')\n", c, (c >= 32 && c <= 126) ? c : '?');
-
-    /* Store result */
     *c_buf = (char)c;
-
-    return 1; /* Read 1 byte */
+    return 1;
 }
 
 /* sys_get_tasks(process_info_t *buf, uint32_t max_count) */
