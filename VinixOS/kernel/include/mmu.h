@@ -18,6 +18,8 @@
 #define MMU_H
 
 #include "types.h"
+#include "platform/memory.h"
+#include "platform/memmap.h"
 
 /* ============================================================
  * L1 Section Descriptor Bit Fields
@@ -110,9 +112,8 @@
 /* True User Space virtual address base */
 #define USER_VA_BASE 0x40000000
 
-/* Physical DDR base (AM335x) */
-#define DDR_PA_BASE 0x80000000
-#define DDR_SIZE_MB 128
+#define DDR_PA_BASE PLATFORM_DDR_PA_BASE
+#define DDR_SIZE_MB PLATFORM_DDR_SIZE_MB
 
 /* PA ↔ VA conversion offset */
 #define VA_OFFSET (KERNEL_VA_BASE - DDR_PA_BASE) /* 0x40000000 */
@@ -132,28 +133,14 @@
 #define USER_SPACE_VA USER_VA_BASE
 #define USER_SPACE_MB 1
 
-/* ============================================================
- * Peripheral Physical Addresses (identity mapped)
- * ============================================================
- * Peripherals are mapped PA == VA (below 0xC0000000) with
- * AP=Kernel-only. This avoids remapping every driver base
- * address while still protecting User mode from accessing I/O.
- */
+/* Peripherals mapped PA == VA below 0xC0000000, kernel-only. */
+#define PERIPH_L4_WKUP_PA        PLATFORM_PERIPH_L4_WKUP_PA
+#define PERIPH_L4_WKUP_SECTIONS  PLATFORM_PERIPH_L4_WKUP_SECTIONS
+#define PERIPH_L4_PER_PA         PLATFORM_PERIPH_L4_PER_PA
+#define PERIPH_L4_PER_SECTIONS   PLATFORM_PERIPH_L4_PER_SECTIONS
 
-/* L4_WKUP: UART0 (0x44E09000), CM_PER (0x44E00000), WDT1 (0x44E35000) */
-#define PERIPH_L4_WKUP_PA 0x44E00000
-#define PERIPH_L4_WKUP_SECTIONS 1
-
-/* L4_PER: INTC (0x48200000), DMTIMER2 (0x48040000), LCDC (0x4830E000) */
-#define PERIPH_L4_PER_PA 0x48000000
-#define PERIPH_L4_PER_SECTIONS 4
-
-/* Framebuffer: 4MB in DDR3, identity mapped (CPU writes, LCDC DMA reads)
- * 800x600x2 = 0.9MB (current), 4 sections reserved for future resolutions
- * Placed after Kernel (5MB) + User (1MB) + 2MB margin = offset 8MB
- * Spans: 0x80800000 – 0x80BFFFFF */
-#define FB_PA_BASE      0x80800000
-#define FB_SECTIONS     4
+#define FB_PA_BASE   PLATFORM_FB_PA_BASE
+#define FB_SECTIONS  PLATFORM_FB_SIZE_MB
 
 /* ============================================================
  * Boot-time Temporary Identity Mapping

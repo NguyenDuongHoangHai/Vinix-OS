@@ -29,7 +29,8 @@ ASM_OBJ = $(addprefix $(BUILD_DIR)/, vectors.o reset.o entry.o exception_entry.o
 C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o watchdog.o intc.o timer.o \
                i2c.o lcdc.o tda19988.o fb.o boot_screen.o \
                scheduler.o task.o idle.o svc_handler.o mmu.o payload.o vfs.o string.o \
-               mmc.o mbr.o fat32.o)
+               mmc.o mbr.o fat32.o \
+               platform_memmap.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
 # Flags
@@ -42,6 +43,7 @@ CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -Iinclude \
          -Ilibc/include \
          -I$(SRC)/arch/arm/include \
+         -I../platform/bbb/include \
          -I$(USERSPACE_DIR)/include \
          -O2 -g
 ASFLAGS = -march=armv7-a -mfloat-abi=soft
@@ -145,6 +147,10 @@ $(BUILD_DIR)/mmu_enable.o: $(SRC)/arch/arm/mmu/mmu_enable.S | $(BUILD_DIR)
 
 # C files - MMU
 $(BUILD_DIR)/mmu.o: $(SRC)/kernel/mmu/mmu.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# C files - Platform (BBB)
+$(BUILD_DIR)/platform_memmap.o: ../platform/bbb/memmap.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - Filesystem

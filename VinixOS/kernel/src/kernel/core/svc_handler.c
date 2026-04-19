@@ -436,18 +436,15 @@ static int32_t sys_get_meminfo(struct svc_context *ctx)
         return E_PTR;
     }
 
-    buf->total = 128 * 1024 * 1024; /* 128 MB */
+    buf->total = PLATFORM_DDR_SIZE_MB * 1024 * 1024;
 
-    /* Calculate sizes */
     buf->kernel_text = (uint32_t)_text_end - (uint32_t)_text_start;
     buf->kernel_data = (uint32_t)_data_end - (uint32_t)_data_start;
     buf->kernel_bss = (uint32_t)_bss_end - (uint32_t)_bss_start;
     buf->kernel_stack = (uint32_t)_svc_stack_top - (uint32_t)_stack_start;
 
-    /* Free memory = Total - (Kernel End - 0x80000000) */
-    /* Note: This assumes simple linear allocation */
     uint32_t kernel_end = (uint32_t)_kernel_end;
-    buf->free = buf->total - (kernel_end - 0x80000000);
+    buf->free = buf->total - (kernel_end - PLATFORM_DDR_PA_BASE);
 
     return E_OK;
 }
