@@ -4,37 +4,30 @@
 
 MAKEFLAGS += --no-print-directory
 
-# Default app to build if not specified (e.g., make APP=hello_world)
-APP ?= shell
+# shell must always build first — the kernel embeds shell.bin as its
+# initial user-space payload. The rest are external ELFs users copy
+# onto the FAT32 rootfs and exec through the shell.
+APPS = shell uname hello
 
-.PHONY: all lib app clean help
+.PHONY: all lib apps clean help $(addprefix build-, $(APPS))
 
-all:
-	@if $(MAKE) -q -C lib && $(MAKE) -q -C apps/$(APP) APP=$(APP); then \
-		echo "make: Nothing to be done for 'all'."; \
-	else \
-		$(MAKE) build_lib build_app; \
-	fi
+all: build_lib apps
 
 build_lib:
-	@if ! $(MAKE) -q -C lib; then \
-		echo "========================================"; \
-		echo " Building Userspace Library (librefarm) "; \
-		echo "========================================"; \
-		$(MAKE) -C lib; \
-	fi
+	@echo "========================================"
+	@echo " Building Userspace Library (librefarm) "
+	@echo "========================================"
+	@$(MAKE) -C lib
 
-build_app: build_lib
-	@if ! $(MAKE) -q -C apps/$(APP) APP=$(APP); then \
-		echo "========================================"; \
-		echo " Building Application: $(APP)           "; \
-		echo "========================================"; \
-		$(MAKE) -C apps/$(APP) APP=$(APP); \
-	fi
+apps: build_lib $(addprefix build-, $(APPS))
+
+$(addprefix build-, $(APPS)): build-%: build_lib
+	@echo "========================================"
+	@echo " Building Application: $*               "
+	@echo "========================================"
+	@$(MAKE) -C apps/$*
 
 lib: build_lib
-app: build_app
-
 
 clean:
 	@echo "========================================"
@@ -47,9 +40,8 @@ help:
 	@echo "VinixOS Userspace Build System"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make APP=<app_name>    # Build specific app"
-	@echo "  make                   # Build default app (shell)"
-	@echo "  make clean             # Clean all build artifacts"
+	@echo "  make            # Build library + all apps (shell, uname, hello, ...)"
+	@echo "  make build-X    # Build just app X"
+	@echo "  make clean      # Clean all build artifacts"
 	@echo ""
-	@echo "Available apps:"
-	@echo "  shell                  # Interactive shell (default)"
+	@echo "Available apps: $(APPS)"

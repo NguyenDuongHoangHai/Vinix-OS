@@ -226,8 +226,22 @@ static int execute_command(char *line)
         entry++;
     }
 
-    printf("Unknown command: %s\n", cmd);
-    printf("Type 'help' for available commands\n");
+    /* Not a built-in — fork + exec as external ELF. Child replaces
+     * its image on success; parent waits for status so the shell
+     * survives whatever the program does (including a crash). */
+    int child_pid = sys_fork();
+    if (child_pid < 0) {
+        printf("fork failed: %d\n", child_pid);
+    } else if (child_pid == 0) {
+        int er = sys_exec(cmd);
+        printf("'%s': exec failed (%d) — not a built-in, not a file\n",
+               cmd, er);
+        sys_exit(127);
+    } else {
+        int status = 0;
+        sys_wait(&status);
+        rc = status;
+    }
 
 out:
     shell_stdin_fd  = saved_stdin;
