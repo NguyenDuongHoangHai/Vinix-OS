@@ -242,7 +242,23 @@ static int execute_command(char *line)
         }
         child_argv[stripped_argc] = 0;
 
-        int er = sys_exec(cmd, child_argv);
+        /* Bare command name → try /bin/<cmd> first, then the root
+         * fallback so cards built before the FHS layout still work. */
+        int er;
+        bool has_slash = false;
+        for (const char *p = cmd; *p; p++) {
+            if (*p == '/') { has_slash = true; break; }
+        }
+
+        if (!has_slash) {
+            char resolved[64] = "/bin/";
+            int k = 5;
+            for (int i = 0; cmd[i] && k < 63; i++) resolved[k++] = cmd[i];
+            resolved[k] = '\0';
+            er = sys_exec(resolved, child_argv);
+        }
+        er = sys_exec(cmd, child_argv);
+
         printf("'%s': exec failed (%d) — not a built-in, not a file\n",
                cmd, er);
         sys_exit(127);

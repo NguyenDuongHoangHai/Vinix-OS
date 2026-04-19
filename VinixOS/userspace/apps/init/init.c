@@ -30,9 +30,14 @@ int main(int argc, char **argv)
         }
 
         if (pid == 0) {
-            /* Child replaces itself with the shell. */
-            execve("sh", 0, 0);
-            printf("[INIT] exec sh failed — put shell.elf on SD as 'sh'\n");
+            /* Child replaces itself with the shell. Shell lives at
+             * /bin/sh per the rootfs layout built by the deploy
+             * script; fall back to a plain "sh" at the root for
+             * cards produced before the FHS reorganisation. */
+            char *argv[] = { "sh", 0 };
+            execve("/bin/sh", argv, 0);
+            execve("sh", argv, 0);
+            printf("[INIT] exec sh failed — /bin/sh missing\n");
             _exit(127);
         }
 

@@ -31,22 +31,43 @@ make -C "$TOPDIR/VinixOS/kernel"
 
 echo ""
 echo "========================================"
-echo " 2/3  Deploy ELFs onto $MOUNT"
+echo " 2/3  Deploy ELFs onto $MOUNT  (FHS layout)"
 echo "========================================"
 if [ ! -d "$MOUNT" ]; then
     echo "SD not mounted at $MOUNT — mount it then retry."
     exit 1
 fi
 
-APPS="shell ls cat echo ps kill pwd free uname hello rm mv"
-for app in $APPS; do
+# Ensure directory layout: /bin for utilities, /sbin for init copy,
+# /etc for config files. Host-side mkdir is fine — the kernel reads
+# subdirectories natively after P5.
+sudo -u "$REAL_USER" mkdir -p "$MOUNT/bin" "$MOUNT/sbin" "$MOUNT/etc"
+
+BIN_APPS="shell ls cat echo ps kill pwd free uname hello rm mv"
+for app in $BIN_APPS; do
     dest=$app
     [ "$app" = "shell" ] && dest=sh
     src="$TOPDIR/VinixOS/userspace/build/apps/$app/$app.elf"
     [ -f "$src" ] || { echo "missing $src"; exit 1; }
-    cp "$src" "$MOUNT/$dest"
-    echo "  $(printf '%-6s' $app) -> $MOUNT/$dest  ($(stat -c%s "$src") bytes)"
+    cp "$src" "$MOUNT/bin/$dest"
+    echo "  $(printf '%-6s' $app) -> $MOUNT/bin/$dest  ($(stat -c%s "$src") bytes)"
 done
+
+INIT_SRC="$TOPDIR/VinixOS/userspace/build/apps/init/init.elf"
+if [ -f "$INIT_SRC" ]; then
+    cp "$INIT_SRC" "$MOUNT/sbin/init"
+    echo "  init   -> $MOUNT/sbin/init   ($(stat -c%s "$INIT_SRC") bytes)"
+fi
+
+MOTD="$MOUNT/etc/motd"
+if [ ! -f "$MOTD" ]; then
+    cat > "$MOTD" <<'MOTDEOF'
+VinixOS 0.1 — BeagleBone Black
+100% hand-written: kernel, libc, userspace, compiler.
+type `help` for built-ins, or run any /bin/<name>.
+MOTDEOF
+    echo "  motd   -> $MOTD"
+fi
 sync
 
 echo ""
