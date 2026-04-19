@@ -21,6 +21,7 @@
 
 extern void sync_selftest(void);
 #include "vfs.h"
+#include "devfs.h"
 #include "mmc.h"
 #include "mbr.h"
 #include "fat32.h"
@@ -116,6 +117,11 @@ void kernel_main(void)
 
     if (vfs_mount("/", fat32_get_operations()) != E_OK) {
         uart_printf("[BOOT] ERROR: Failed to mount FAT32 at /\n");
+        while (1);
+    }
+
+    if (vfs_mount("/dev", devfs_init()) != E_OK) {
+        uart_printf("[BOOT] ERROR: Failed to mount devfs at /dev\n");
         while (1);
     }
 

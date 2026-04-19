@@ -109,6 +109,8 @@ int sys_wait(int *status);
 int sys_getpid(void);
 int sys_getppid(void);
 int sys_kill(int pid, int sig);
+int sys_dup(int oldfd);
+int sys_dup2(int oldfd, int newfd);
 
 #define SIGKILL  9
 #define SIGSEGV 11

@@ -15,12 +15,16 @@
 #define MAX_FDS         16      /* Maximum open file descriptors */
 #define MAX_PATH        256     /* Maximum path length */
 
-/* Per-process file-descriptor entry. Lives in task_struct.files[]. */
+/* Per-process file-descriptor entry. Lives in task_struct.files[].
+ * fs_ops points at whichever filesystem served the open() — so read
+ * and write dispatch to the right backend instead of a hard-coded "/". */
+struct vfs_ops;
 struct vfs_fd {
-    bool     in_use;
-    uint32_t file_index;
-    uint32_t offset;
-    int      flags;
+    bool                   in_use;
+    uint32_t               file_index;
+    uint32_t               offset;
+    int                    flags;
+    struct vfs_operations *fs_ops;
 };
 
 /* ============================================================
@@ -99,6 +103,12 @@ int vfs_write(int fd, const void *buf, uint32_t len);
  * @return 0 on success, negative error code on failure
  */
 int vfs_close(int fd);
+
+/* Duplicate fd into the lowest available slot. Returns new fd or error. */
+int vfs_dup(int oldfd);
+
+/* Point newfd at the same underlying file as oldfd, closing newfd first. */
+int vfs_dup2(int oldfd, int newfd);
 
 /**
  * List directory contents

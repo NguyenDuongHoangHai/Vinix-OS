@@ -6,6 +6,7 @@
 
 #include "shell.h"
 #include "user_syscall.h"
+#include "syscalls.h"
 #include "types.h"
 #include <stdarg.h>
 
@@ -13,6 +14,9 @@
  * Configuration
  * ============================================================ */
 #define SHELL_LINE_BUFFER_SIZE 128
+
+int shell_stdin_fd  = 0;
+int shell_stdout_fd = 1;
 
 /* Map internal logging to shell helpers */
 #define uart_putc shell_putc
@@ -23,11 +27,20 @@
  * Output Helpers (Syscall Wrappers)
  * ============================================================ */
 
+static void stdout_write(const void *buf, uint32_t len)
+{
+    if (shell_stdout_fd == 1) {
+        sys_write(buf, len);
+    } else {
+        sys_write_file(shell_stdout_fd, buf, len);
+    }
+}
+
 void shell_putc(char c)
 {
     /* Ensure address is on stack */
     char buf = c;
-    sys_write(&buf, 1);
+    stdout_write(&buf, 1);
 }
 
 void shell_puts(const char *s)
@@ -42,34 +55,30 @@ void shell_puts(const char *s)
 
     while (*s)
     {
-        /* Handle newline expansion */
-        if (*s == '\n')
+        /* Newline expansion only applies when writing to the kernel
+         * stdout (UART). Redirected files shouldn't have \r injected. */
+        if (*s == '\n' && shell_stdout_fd == 1)
         {
-            /* Flush current buffer if full or before newline */
-            if (i > 0)
-            {
-                sys_write(buf, i);
+            if (i > 0) {
+                stdout_write(buf, i);
                 i = 0;
             }
-            /* Write \r */
             buf[0] = '\r';
-            sys_write(buf, 1);
+            stdout_write(buf, 1);
         }
 
         buf[i++] = *s++;
 
-        /* Flush if buffer full */
         if (i >= 64)
         {
-            sys_write(buf, i);
+            stdout_write(buf, i);
             i = 0;
         }
     }
 
-    /* Flush remaining */
     if (i > 0)
     {
-        sys_write(buf, i);
+        stdout_write(buf, i);
     }
 }
 
@@ -248,6 +257,58 @@ static int strcmp(const char *s1, const char *s2)
 /* Forward declaration from commands.c */
 extern const struct command cmd_table[];
 
+static int is_redirect(const char *tok)
+{
+    return strcmp(tok, ">") == 0 || strcmp(tok, ">>") == 0 || strcmp(tok, "<") == 0;
+}
+
+/* Returns -1 on parse/open error, 0 on success. On success, *new_argc
+ * holds the argv count with redirect tokens stripped, and the caller
+ * must close redirect fds + restore shell_stdin_fd/stdout_fd afterwards. */
+static int apply_redirects(char **args, int argc, int *new_argc,
+                           int *stdin_fd_out, int *stdout_fd_out)
+{
+    int out_fd = -1, in_fd = -1;
+    int w = 0;
+
+    for (int i = 0; i < argc; i++) {
+        if (!is_redirect(args[i])) { args[w++] = args[i]; continue; }
+
+        if (i + 1 >= argc) {
+            printf("syntax error: '%s' needs a filename\n", args[i]);
+            return -1;
+        }
+
+        const char *target = args[i + 1];
+        if (strcmp(args[i], "<") == 0) {
+            int fd = sys_open(target, O_RDONLY);
+            if (fd < 0) {
+                printf("open '%s' for read failed: %d\n", target, fd);
+                return -1;
+            }
+            if (in_fd >= 0) sys_close(in_fd);
+            in_fd = fd;
+        } else {
+            int flags = O_WRONLY | O_CREAT;
+            flags |= (strcmp(args[i], ">>") == 0) ? O_APPEND : O_TRUNC;
+            int fd = sys_open(target, flags);
+            if (fd < 0) {
+                printf("open '%s' for write failed: %d\n", target, fd);
+                if (in_fd >= 0) sys_close(in_fd);
+                return -1;
+            }
+            if (out_fd >= 0) sys_close(out_fd);
+            out_fd = fd;
+        }
+        i++;  /* consume the filename too */
+    }
+
+    *new_argc = w;
+    *stdin_fd_out  = in_fd;
+    *stdout_fd_out = out_fd;
+    return 0;
+}
+
 static int execute_command(char *line)
 {
     char *args[SHELL_MAX_ARGS];
@@ -283,20 +344,47 @@ static int execute_command(char *line)
             p++;
     }
 
+    /* 2.5. Extract redirects. Leaves args[] pointing at the command only. */
+    int redir_in = -1, redir_out = -1;
+    int stripped_argc = argc;
+    if (apply_redirects(args, argc, &stripped_argc, &redir_in, &redir_out) != 0) {
+        return -1;
+    }
+    if (stripped_argc == 0) {
+        if (redir_in  >= 0) sys_close(redir_in);
+        if (redir_out >= 0) sys_close(redir_out);
+        return 0;
+    }
+
+    int saved_stdin  = shell_stdin_fd;
+    int saved_stdout = shell_stdout_fd;
+    if (redir_in  >= 0) shell_stdin_fd  = redir_in;
+    if (redir_out >= 0) shell_stdout_fd = redir_out;
+
+    cmd = args[0];
+    int rc = -1;
+
     /* 3. Dispatch */
     const struct command *entry = cmd_table;
     while (entry->name != NULL)
     {
         if (strcmp(entry->name, cmd) == 0)
         {
-            return entry->handler(argc, args);
+            rc = entry->handler(stripped_argc, args);
+            goto out;
         }
         entry++;
     }
 
     printf("Unknown command: %s\n", cmd);
     printf("Type 'help' for available commands\n");
-    return -1;
+
+out:
+    shell_stdin_fd  = saved_stdin;
+    shell_stdout_fd = saved_stdout;
+    if (redir_in  >= 0) sys_close(redir_in);
+    if (redir_out >= 0) sys_close(redir_out);
+    return rc;
 }
 
 /* ============================================================

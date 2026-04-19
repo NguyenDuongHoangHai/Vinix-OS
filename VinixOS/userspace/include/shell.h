@@ -41,6 +41,12 @@ void printf(const char *fmt, ...);
 void shell_putc(char c);
 void shell_puts(const char *s);
 
+/* Redirect state — commands that read without an explicit path fall
+ * back to shell_stdin_fd; output goes to shell_stdout_fd. Default 0/1
+ * means kernel stdin/stdout (UART). */
+extern int shell_stdin_fd;
+extern int shell_stdout_fd;
+
 /* ============================================================
  * Command Structure
  * ============================================================ */

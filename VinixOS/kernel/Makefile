@@ -33,6 +33,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                page_alloc.o slab.o vmm.o \
                atomic.o spinlock.o wait_queue.o sleep.o sync_selftest.o \
                fork.o wait.o exec.o \
+               char_dev.o devfs.o \
                platform_memmap.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
@@ -197,6 +198,12 @@ $(BUILD_DIR)/vfs.o: $(SRC)/kernel/fs/vfs.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/fat32.o: $(SRC)/kernel/fs/fat32.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/devfs.o: $(SRC)/kernel/fs/devfs.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/char_dev.o: $(SRC)/kernel/dev/char_dev.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # C files - libc

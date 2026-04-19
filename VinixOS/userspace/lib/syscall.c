@@ -305,6 +305,31 @@ int sys_kill(int pid, int sig)
     return ret;
 }
 
+int sys_dup(int oldfd)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #17\n\t"
+        "mov    r0, %1\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : "r"(oldfd) : "r0", "r7");
+    return ret;
+}
+
+int sys_dup2(int oldfd, int newfd)
+{
+    int ret;
+    __asm__ __volatile__(
+        "mov    r7, #18\n\t"
+        "mov    r0, %1\n\t"
+        "mov    r1, %2\n\t"
+        "svc    #0\n\t"
+        "mov    %0, r0\n\t"
+        : "=r"(ret) : "r"(oldfd), "r"(newfd) : "r0", "r1", "r7");
+    return ret;
+}
+
 /* ============================================================
  * sys_exec - Replace current process image
  * ============================================================ */

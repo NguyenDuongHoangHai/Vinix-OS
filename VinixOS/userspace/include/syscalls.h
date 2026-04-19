@@ -18,6 +18,13 @@
 #define SYS_LISTDIR 9
 #define SYS_EXEC 10
 #define SYS_WRITE_FILE 11
+#define SYS_FORK 12
+#define SYS_WAIT 13
+#define SYS_GETPID 14
+#define SYS_GETPPID 15
+#define SYS_KILL 16
+#define SYS_DUP 17
+#define SYS_DUP2 18
 
 /* ============================================================
  * Data Structures
@@ -68,5 +75,6 @@ typedef struct
 #define O_ACCMODE 0x03 /* Access mode mask */
 #define O_CREAT  0x04 /* Create file if missing */
 #define O_TRUNC  0x08 /* Truncate file to zero on open */
+#define O_APPEND 0x10 /* Seek to end-of-file on open */
 
 #endif /* _SYSCALLS_H */

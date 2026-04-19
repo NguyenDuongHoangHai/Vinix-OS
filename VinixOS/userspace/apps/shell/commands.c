@@ -162,24 +162,28 @@ static int cmd_ls(int argc, char **argv)
 
 static int cmd_cat(int argc, char **argv)
 {
-    if (argc < 2)
-    {
-        printf("Usage: cat <filename>\n");
-        printf("Example: cat /README.txt\n");
+    /* No arg: stream from shell_stdin_fd (set by `<` redirect).
+     * Without a redirect, shell_stdin_fd is 0 — the kernel stdin —
+     * which would block on UART, so require either an arg or a
+     * redirect. */
+    int fd;
+    bool opened_here = false;
+
+    if (argc >= 2) {
+        const char *filename = argv[1];
+        fd = sys_open(filename, O_RDONLY);
+        if (fd < 0) {
+            printf("Error opening file '%s': %d\n", filename, fd);
+            return -1;
+        }
+        opened_here = true;
+    } else if (shell_stdin_fd > 2) {
+        fd = shell_stdin_fd;
+    } else {
+        printf("Usage: cat <filename>   (or redirect: cat < file)\n");
         return -1;
     }
 
-    const char *filename = argv[1];
-
-    /* Open file */
-    int fd = sys_open(filename, 0); /* O_RDONLY = 0 */
-    if (fd < 0)
-    {
-        printf("Error opening file '%s': %d\n", filename, fd);
-        return -1;
-    }
-
-    /* Read and display file content */
     char buffer[256];
     int bytes_read;
 
@@ -187,7 +191,7 @@ static int cmd_cat(int argc, char **argv)
 
     while ((bytes_read = sys_read_file(fd, buffer, sizeof(buffer) - 1)) > 0)
     {
-        buffer[bytes_read] = '\0'; /* Null terminate */
+        buffer[bytes_read] = '\0';
         printf("%s", buffer);
     }
 
@@ -198,8 +202,7 @@ static int cmd_cat(int argc, char **argv)
 
     printf("\n");
 
-    /* Close file */
-    sys_close(fd);
+    if (opened_here) sys_close(fd);
     return 0;
 }
 

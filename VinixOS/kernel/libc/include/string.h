@@ -20,6 +20,12 @@
 int strcmp(const char *s1, const char *s2);
 
 /**
+ * Compare first n bytes of two strings
+ * @return 0 if equal over [0, n), <0 / >0 otherwise
+ */
+int strncmp(const char *s1, const char *s2, size_t n);
+
+/**
  * Copy string from src to dst (including null terminator)
  */
 void strcpy(char *dst, const char *src);

@@ -465,6 +465,16 @@ void svc_handler(struct svc_context *ctx)
         result = do_fork(ctx);
         break;
 
+    case SYS_DUP: {
+        result = vfs_dup((int)ctx->r0);
+        break;
+    }
+
+    case SYS_DUP2: {
+        result = vfs_dup2((int)ctx->r0, (int)ctx->r1);
+        break;
+    }
+
     case SYS_KILL: {
         int pid = (int)ctx->r0;
         int sig = (int)ctx->r1;
