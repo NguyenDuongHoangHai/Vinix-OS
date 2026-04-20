@@ -41,17 +41,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                platform_memmap.o platform_devices.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
-# ==================================================
-# Hai Nguyen: add MDIO/PHY driver (Layer 1)
 C_OBJ += $(BUILD_DIR)/mdio.o
-
-TESTCASE_L1 = ../testcase/layer1
-ifneq ($(wildcard $(TESTCASE_L1)/mdio_test.c),)
-    CFLAGS += -DENABLE_LAYER1_TEST -I$(TESTCASE_L1)
-    C_OBJ  += $(BUILD_DIR)/mdio_test.o
-endif
-# end Hai Nguyen
-# ==================================================
 
 # Flags
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
@@ -66,6 +56,17 @@ CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -I../platform/bbb/include \
          -I$(USERSPACE_DIR)/include \
          -O2 -g
+
+# ==================================================
+# Hai Nguyen: add MDIO/PHY driver (Layer 1)
+# Phải đặt SAU khi CFLAGS được define để += không bị ghi đè
+TESTCASE_L1 = ../testcase/layer1
+ifneq ($(wildcard $(TESTCASE_L1)/mdio_test.c),)
+    CFLAGS += -DENABLE_LAYER1_TEST -I$(TESTCASE_L1)
+    C_OBJ  += $(BUILD_DIR)/mdio_test.o
+endif
+# end Hai Nguyen
+# ==================================================
 ASFLAGS = -march=armv7-a -mfloat-abi=soft
 LDFLAGS = -T $(LINKER)/kernel.ld -nostdlib -Wl,-Map=$(BUILD_DIR)/kernel.map
 
