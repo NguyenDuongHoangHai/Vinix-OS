@@ -17,6 +17,16 @@
 
 #define CM_PER_BASE                 0x44E00000
 #define CM_PER_CPGMAC0_CLKCTRL     (CM_PER_BASE + 0x014)
+/* ================================================== */
+/* Fix Bug 01: MDIO idle timeout — Hai Nguyen
+ * Thiếu CM_PER_CPSW_CLKSTCTRL SW_WKUP khiến 125MHz functional
+ * clock của MDIO state machine bị gated dù CPGMAC0 báo FUNC.
+ * TRM Ch.08 — CPSW clock domain phải wake trước khi enable module. */
+#define CM_PER_CPSW_CLKSTCTRL      (CM_PER_BASE + 0x144)
+#define CLKTRCTRL_SW_WKUP          0x2
+#define CLKACT_CPSW_125M           (1U << 4)
+/* end Fix Bug 01                                      */
+/* ================================================== */
 #define MODULEMODE_ENABLE           0x2
 #define MODULEMODE_MASK             0x3
 #define IDLEST_MASK                 (0x3 << 16)
@@ -102,11 +112,24 @@ static int mdio_wait_idle(void)
 
 int mdio_init(void)
 {
+    /* ================================================== */
+    /* Fix Bug 01: wake CPSW clock domain trước enable module — Hai Nguyen */
+    mmio_write32(CM_PER_CPSW_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
+    uint32_t n = 50000;
+    while (!(mmio_read32(CM_PER_CPSW_CLKSTCTRL) & CLKACT_CPSW_125M)) {
+        if (--n == 0) {
+            uart_printf("[MDIO] CPSW 125MHz clock timeout\n");
+            return E_FAIL;
+        }
+    }
+    /* end Fix Bug 01                                      */
+    /* ================================================== */
+
     uint32_t reg = mmio_read32(CM_PER_CPGMAC0_CLKCTRL);
     reg = (reg & ~MODULEMODE_MASK) | MODULEMODE_ENABLE;
     mmio_write32(CM_PER_CPGMAC0_CLKCTRL, reg);
 
-    uint32_t n = 50000;
+    n = 50000;
     while ((mmio_read32(CM_PER_CPGMAC0_CLKCTRL) & IDLEST_MASK) != IDLEST_FUNC) {
         if (--n == 0) {
             uart_printf("[MDIO] clock enable timeout\n");
