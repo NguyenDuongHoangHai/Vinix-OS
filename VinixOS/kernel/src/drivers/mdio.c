@@ -114,14 +114,9 @@ int mdio_init(void)
 {
     /* ================================================== */
     /* Fix Bug 01: wake CPSW clock domain trước enable module — Hai Nguyen */
+    uart_printf("[MDIO] DBG CPSW_CLKSTCTRL before = 0x%08x\n", mmio_read32(CM_PER_CPSW_CLKSTCTRL));
     mmio_write32(CM_PER_CPSW_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
-    uint32_t n = 50000;
-    while (!(mmio_read32(CM_PER_CPSW_CLKSTCTRL) & CLKACT_CPSW_125M)) {
-        if (--n == 0) {
-            uart_printf("[MDIO] CPSW 125MHz clock timeout\n");
-            return E_FAIL;
-        }
-    }
+    uart_printf("[MDIO] DBG CPSW_CLKSTCTRL after  = 0x%08x\n", mmio_read32(CM_PER_CPSW_CLKSTCTRL));
     /* end Fix Bug 01                                      */
     /* ================================================== */
 
@@ -129,20 +124,24 @@ int mdio_init(void)
     reg = (reg & ~MODULEMODE_MASK) | MODULEMODE_ENABLE;
     mmio_write32(CM_PER_CPGMAC0_CLKCTRL, reg);
 
-    n = 50000;
+    uint32_t n = 50000;
     while ((mmio_read32(CM_PER_CPGMAC0_CLKCTRL) & IDLEST_MASK) != IDLEST_FUNC) {
         if (--n == 0) {
+            uart_printf("[MDIO] DBG CPGMAC0_CLKCTRL = 0x%08x\n", mmio_read32(CM_PER_CPGMAC0_CLKCTRL));
             uart_printf("[MDIO] clock enable timeout\n");
             return E_FAIL;
         }
     }
+    uart_printf("[MDIO] DBG CPGMAC0_CLKCTRL = 0x%08x\n", mmio_read32(CM_PER_CPGMAC0_CLKCTRL));
 
     mmio_write32(CONF_MDIO_DATA, CONF_MDIO_DATA_VAL);
     mmio_write32(CONF_MDIO_CLK,  CONF_MDIO_CLK_VAL);
 
     mmio_write32(MDIO_CONTROL, MDIO_CTRL_ENABLE | MDIO_CTRL_CLKDIV);
+    uart_printf("[MDIO] DBG MDIO_CONTROL = 0x%08x\n", mmio_read32(MDIO_CONTROL));
 
     if (mdio_wait_idle() != E_OK) {
+        uart_printf("[MDIO] DBG MDIO_CONTROL on timeout = 0x%08x\n", mmio_read32(MDIO_CONTROL));
         uart_printf("[MDIO] idle timeout\n");
         return E_FAIL;
     }
