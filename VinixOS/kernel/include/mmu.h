@@ -141,6 +141,13 @@
 #define PERIPH_L4_PER_PA         PLATFORM_PERIPH_L4_PER_PA
 #define PERIPH_L4_PER_SECTIONS   PLATFORM_PERIPH_L4_PER_SECTIONS
 
+/* ================================================== */
+/* Hai Nguyen: alias CPSW region for mmu.c            */
+#define PERIPH_CPSW_PA           PLATFORM_PERIPH_CPSW_PA
+#define PERIPH_CPSW_SECTIONS     PLATFORM_PERIPH_CPSW_SECTIONS
+/* end Hai Nguyen                                      */
+/* ================================================== */
+
 #define FB_PA_BASE   PLATFORM_FB_PA_BASE
 #define FB_SECTIONS  PLATFORM_FB_SIZE_MB
 

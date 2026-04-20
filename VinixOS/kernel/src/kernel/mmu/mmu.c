@@ -86,6 +86,12 @@ void mmu_init(void)
                 PERIPH_L4_WKUP_PA, PERIPH_L4_WKUP_SECTIONS);
     uart_printf("[MMU] Peripheral L4_PER:  PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
                 PERIPH_L4_PER_PA, PERIPH_L4_PER_SECTIONS);
+    /* ================================================== */
+    /* Hai Nguyen: log CPSW mapping                       */
+    uart_printf("[MMU] Peripheral CPSW:    PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
+                PERIPH_CPSW_PA, PERIPH_CPSW_SECTIONS);
+    /* end Hai Nguyen                                      */
+    /* ================================================== */
     uart_printf("[MMU] Framebuffer:        PA 0x%x – 0x%x (%d MB) [Non-Cacheable, Identity]\n",
                 FB_PA_BASE, FB_PA_BASE + (FB_SECTIONS * MMU_SECTION_SIZE) - 1, FB_SECTIONS);
     uart_printf("[MMU] Identity mapping removed (VA 0x80000000 now unmapped)\n");
@@ -158,6 +164,16 @@ uint32_t mmu_new_pgd(void)
         uint32_t idx = (FB_PA_BASE >> MMU_SECTION_SHIFT) + i;
         new_pgd[idx] = pgd[idx];
     }
+
+    /* ================================================== */
+    /* Hai Nguyen: copy CPSW entry to forked page tables  */
+    for (uint32_t i = 0; i < PERIPH_CPSW_SECTIONS; i++)
+    {
+        uint32_t idx = (PERIPH_CPSW_PA >> MMU_SECTION_SHIFT) + i;
+        new_pgd[idx] = pgd[idx];
+    }
+    /* end Hai Nguyen                                      */
+    /* ================================================== */
 
     return pa;
 }
@@ -232,6 +248,16 @@ mmu_build_page_table_boot(uint32_t *pgd_pa)
         pa = PERIPH_L4_PER_PA + (i * MMU_SECTION_SIZE);
         pgd_pa[pa >> MMU_SECTION_SHIFT] = pa | MMU_SECT_PERIPHERAL;
     }
+
+    /* ================================================== */
+    /* Hai Nguyen: map CPSW Ethernet + MDIO (L4 Fast bus) */
+    for (i = 0; i < PERIPH_CPSW_SECTIONS; i++)
+    {
+        pa = PERIPH_CPSW_PA + (i * MMU_SECTION_SIZE);
+        pgd_pa[pa >> MMU_SECTION_SHIFT] = pa | MMU_SECT_PERIPHERAL;
+    }
+    /* end Hai Nguyen                                      */
+    /* ================================================== */
 
     /* Framebuffer: identity mapped, normal non-cacheable (CPU writes, LCDC DMA reads) */
     for (i = 0; i < FB_SECTIONS; i++)

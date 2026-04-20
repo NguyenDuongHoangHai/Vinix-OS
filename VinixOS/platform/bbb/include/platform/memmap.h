@@ -16,6 +16,13 @@
 #define PLATFORM_PERIPH_L4_PER_PA         0x48000000
 #define PLATFORM_PERIPH_L4_PER_SECTIONS   4
 
+/* ================================================== */
+/* Hai Nguyen: CPSW Ethernet + MDIO region (L4 Fast) */
+#define PLATFORM_PERIPH_CPSW_PA           0x4A100000
+#define PLATFORM_PERIPH_CPSW_SECTIONS     1
+/* end Hai Nguyen                                      */
+/* ================================================== */
+
 struct platform_peripheral_region {
     uint32_t pa;
     uint32_t sections;

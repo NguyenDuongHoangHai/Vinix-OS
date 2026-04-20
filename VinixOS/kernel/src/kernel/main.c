@@ -81,6 +81,11 @@ void kernel_main(void)
     uart_printf(" VinixOS: Interactive Shell\n");
     uart_printf("========================================\n\n");
 
+    /* 1.5 MMU Phase B — remove identity map, update VBAR to high VA.
+     * MMU was already enabled by entry.S (Phase A trampoline).
+     * We are now running at VA 0xC0xxxxxx. */
+    mmu_init();
+
     /* ================================================== */
     /* Hai Nguyen: init MDIO/PHY driver (Layer 1)        */
     mdio_init();
@@ -89,11 +94,6 @@ void kernel_main(void)
 #endif
     /* end Hai Nguyen                                     */
     /* ================================================== */
-
-    /* 1.5 MMU Phase B — remove identity map, update VBAR to high VA.
-     * MMU was already enabled by entry.S (Phase A trampoline).
-     * We are now running at VA 0xC0xxxxxx. */
-    mmu_init();
 
     page_alloc_init();
     page_alloc_selftest();

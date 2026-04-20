@@ -9,6 +9,11 @@
 const struct platform_peripheral_region platform_peripheral_map[] = {
     { PLATFORM_PERIPH_L4_WKUP_PA, PLATFORM_PERIPH_L4_WKUP_SECTIONS, "L4_WKUP" },
     { PLATFORM_PERIPH_L4_PER_PA,  PLATFORM_PERIPH_L4_PER_SECTIONS,  "L4_PER"  },
+    /* ================================================== */
+    /* Hai Nguyen: add CPSW Ethernet + MDIO (L4 Fast bus) */
+    { PLATFORM_PERIPH_CPSW_PA,    PLATFORM_PERIPH_CPSW_SECTIONS,    "CPSW"    },
+    /* end Hai Nguyen                                      */
+    /* ================================================== */
 };
 
 const int platform_peripheral_map_count =
