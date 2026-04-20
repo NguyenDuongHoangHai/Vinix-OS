@@ -94,15 +94,6 @@ static int mdio_wait_go(void)
     return E_OK;
 }
 
-static int mdio_wait_idle(void)
-{
-    uint32_t n = 100000;
-    while (!(mmio_read32(MDIO_CONTROL) & MDIO_CTRL_IDLE)) {
-        if (--n == 0)
-            return E_FAIL;
-    }
-    return E_OK;
-}
 
 /* ============================================================
  * PHẦN 6 — Public Functions
@@ -132,11 +123,6 @@ int mdio_init(void)
     mmio_write32(CONF_MDIO_CLK,  CONF_MDIO_CLK_VAL);
 
     mmio_write32(MDIO_CONTROL, MDIO_CTRL_ENABLE | MDIO_CTRL_CLKDIV);
-
-    if (mdio_wait_idle() != E_OK) {
-        uart_printf("[MDIO] idle timeout\n");
-        return E_FAIL;
-    }
 
     uart_printf("[MDIO] init OK, ALIVE=0x%08x\n", mmio_read32(MDIO_ALIVE));
     return E_OK;
