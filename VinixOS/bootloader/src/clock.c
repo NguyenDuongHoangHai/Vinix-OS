@@ -49,6 +49,16 @@ static void enable_peripheral_clocks(void)
 
     writel(MODULE_ENABLE, CM_WKUP_UART0_CLKCTRL);
     while ((readl(CM_WKUP_UART0_CLKCTRL) & 0x30000) != 0);
+
+    /* ================================================== */
+    /* Fix Bug 01: enable DPLL_CORE M5 output — Hai Nguyen
+     * CPSW MDIO state machine cần 125MHz functional clock từ
+     * DPLL_CORE M5. BootROM không enable M5 output.
+     * DPLL_CORE = 1000MHz (BootROM), M5 = 8 → 125MHz.
+     * Bit 9 = GATE_CTRL force-on, bits[4:0] = divider. */
+    writel((1 << 9) | 8, CM_DIV_M5_DPLL_CORE);
+    /* end Fix Bug 01                                      */
+    /* ================================================== */
 }
 
 /* CRITICAL: must not call UART here — caller owns UART logging.

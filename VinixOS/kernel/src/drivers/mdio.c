@@ -18,13 +18,11 @@
 #define CM_PER_BASE                 0x44E00000
 #define CM_PER_CPGMAC0_CLKCTRL     (CM_PER_BASE + 0x014)
 /* ================================================== */
-/* Fix Bug 01: MDIO idle timeout — Hai Nguyen
- * Thiếu CM_PER_CPSW_CLKSTCTRL SW_WKUP khiến 125MHz functional
- * clock của MDIO state machine bị gated dù CPGMAC0 báo FUNC.
- * TRM Ch.08 — CPSW clock domain phải wake trước khi enable module. */
+/* Fix Bug 01: add CPSW clock domain wake — Hai Nguyen
+ * SW_WKUP đảm bảo clock domain active sau khi bootloader
+ * enable DPLL_CORE M5 (125MHz). TRM Ch.08. */
 #define CM_PER_CPSW_CLKSTCTRL      (CM_PER_BASE + 0x144)
 #define CLKTRCTRL_SW_WKUP          0x2
-#define CLKACT_CPSW_125M           (1U << 4)
 /* end Fix Bug 01                                      */
 /* ================================================== */
 #define MODULEMODE_ENABLE           0x2
@@ -113,10 +111,8 @@ static int mdio_wait_idle(void)
 int mdio_init(void)
 {
     /* ================================================== */
-    /* Fix Bug 01: wake CPSW clock domain trước enable module — Hai Nguyen */
-    uart_printf("[MDIO] DBG CPSW_CLKSTCTRL before = 0x%08x\n", mmio_read32(CM_PER_CPSW_CLKSTCTRL));
+    /* Fix Bug 01: wake CPSW clock domain — Hai Nguyen */
     mmio_write32(CM_PER_CPSW_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
-    uart_printf("[MDIO] DBG CPSW_CLKSTCTRL after  = 0x%08x\n", mmio_read32(CM_PER_CPSW_CLKSTCTRL));
     /* end Fix Bug 01                                      */
     /* ================================================== */
 
@@ -127,21 +123,17 @@ int mdio_init(void)
     uint32_t n = 50000;
     while ((mmio_read32(CM_PER_CPGMAC0_CLKCTRL) & IDLEST_MASK) != IDLEST_FUNC) {
         if (--n == 0) {
-            uart_printf("[MDIO] DBG CPGMAC0_CLKCTRL = 0x%08x\n", mmio_read32(CM_PER_CPGMAC0_CLKCTRL));
             uart_printf("[MDIO] clock enable timeout\n");
             return E_FAIL;
         }
     }
-    uart_printf("[MDIO] DBG CPGMAC0_CLKCTRL = 0x%08x\n", mmio_read32(CM_PER_CPGMAC0_CLKCTRL));
 
     mmio_write32(CONF_MDIO_DATA, CONF_MDIO_DATA_VAL);
     mmio_write32(CONF_MDIO_CLK,  CONF_MDIO_CLK_VAL);
 
     mmio_write32(MDIO_CONTROL, MDIO_CTRL_ENABLE | MDIO_CTRL_CLKDIV);
-    uart_printf("[MDIO] DBG MDIO_CONTROL = 0x%08x\n", mmio_read32(MDIO_CONTROL));
 
     if (mdio_wait_idle() != E_OK) {
-        uart_printf("[MDIO] DBG MDIO_CONTROL on timeout = 0x%08x\n", mmio_read32(MDIO_CONTROL));
         uart_printf("[MDIO] idle timeout\n");
         return E_FAIL;
     }
