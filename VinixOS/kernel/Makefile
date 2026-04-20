@@ -41,6 +41,18 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                platform_memmap.o platform_devices.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
+# ==================================================
+# Hai Nguyen: add MDIO/PHY driver (Layer 1)
+C_OBJ += $(BUILD_DIR)/mdio.o
+
+TESTCASE_L1 = ../testcase/layer1
+ifneq ($(wildcard $(TESTCASE_L1)/mdio_test.c),)
+    CFLAGS += -DENABLE_LAYER1_TEST -I$(TESTCASE_L1)
+    C_OBJ  += $(BUILD_DIR)/mdio_test.o
+endif
+# end Hai Nguyen
+# ==================================================
+
 # Flags
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -march=armv7-a -mtune=cortex-a8 \
@@ -142,6 +154,16 @@ $(BUILD_DIR)/mmc.o: $(SRC)/drivers/mmc.c | $(BUILD_DIR)
 
 $(BUILD_DIR)/mbr.o: $(SRC)/drivers/mbr.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# ==================================================
+# Hai Nguyen: add MDIO/PHY driver build rule (Layer 1)
+$(BUILD_DIR)/mdio.o: $(SRC)/drivers/mdio.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/mdio_test.o: $(TESTCASE_L1)/mdio_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+# end Hai Nguyen
+# ==================================================
 
 $(BUILD_DIR)/fb.o: $(SRC)/drivers/fb.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@

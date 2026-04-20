@@ -37,6 +37,15 @@ extern void sync_selftest(void);
 #include "tda19988.h"
 #include "fb.h"
 #include "boot_screen.h"
+
+/* ================================================== */
+/* Hai Nguyen: add MDIO/PHY driver (Layer 1)          */
+#include "mdio.h"
+#ifdef ENABLE_LAYER1_TEST
+#include "mdio_test.h"
+#endif
+/* end Hai Nguyen                                      */
+/* ================================================== */
 /* ============================================================
  * User Space Payload (Defined in payload.S)
  * ============================================================ */
@@ -71,6 +80,15 @@ void kernel_main(void)
     uart_printf("========================================\n");
     uart_printf(" VinixOS: Interactive Shell\n");
     uart_printf("========================================\n\n");
+
+    /* ================================================== */
+    /* Hai Nguyen: init MDIO/PHY driver (Layer 1)        */
+    mdio_init();
+#ifdef ENABLE_LAYER1_TEST
+    mdio_layer1_test();
+#endif
+    /* end Hai Nguyen                                     */
+    /* ================================================== */
 
     /* 1.5 MMU Phase B — remove identity map, update VBAR to high VA.
      * MMU was already enabled by entry.S (Phase A trampoline).
