@@ -162,28 +162,26 @@ static void tda_probe(void)
 
 static void tda_write_avi_infoframe(void)
 {
-    /* NXP BSL pattern: disable IF2 → write all bytes → enable IF2 */
+    /* NXP BSL pattern: disable IF2 → write all bytes → re-enable IF2. */
     uint8_t buf[17];
     uint8_t sum;
 
-    /* Step 1: Disable IF2 transmission before writing */
     tda_clear(REG_DIP_IF_FLAGS, DIP_IF_FLAGS_IF1);
 
-    /* Step 2: Build AVI InfoFrame for 800x600 RGB */
     buf[0]  = 0x82;   /* HB0: AVI InfoFrame type */
     buf[1]  = 0x02;   /* HB1: version 2 */
     buf[2]  = 0x0D;   /* HB2: length = 13 bytes */
     buf[4]  = 0x10;   /* PB1: Y=00 (RGB), A0=1 (active format valid) */
-    buf[5]  = 0x18;   /* PB2: C=00 (default), M=01 (4:3), R=1000 (same as coded) */
-    buf[6]  = 0x00;   /* PB3 */
+    buf[5]  = 0x18;   /* PB2: C=00, M=01 (4:3), R=1000 (same as coded) */
+    buf[6]  = 0x00;
     buf[7]  = 0x00;   /* PB4: VIC=0 (800x600 is VESA-only, no CEA VIC) */
-    buf[8]  = 0x00;   /* PB5: no pixel repetition */
+    buf[8]  = 0x00;
     buf[9]  = 0x00;   buf[10] = 0x00;
     buf[11] = 0x00;   buf[12] = 0x00;
     buf[13] = 0x00;   buf[14] = 0x00;
     buf[15] = 0x00;   buf[16] = 0x00;
 
-    /* Checksum: sum of all bytes (including PB0) must be 0 mod 256 */
+    /* Checksum byte: total of all 17 bytes must be 0 mod 256. */
     sum = 0;
     for (int i = 0; i < 17; i++) {
         if (i == 3) continue;
@@ -191,15 +189,11 @@ static void tda_write_avi_infoframe(void)
     }
     buf[3] = (uint8_t)(256 - sum);
 
-    /* Step 3: Write all 17 bytes to IF2 registers */
     for (int i = 0; i < 17; i++) {
         tda_write(REG_AVI_IF + i, buf[i]);
     }
 
-    /* Step 4: Enable IF2 transmission */
     tda_set(REG_DIP_IF_FLAGS, DIP_IF_FLAGS_IF1);
-
-    /* AVI InfoFrame loaded */
 }
 
 /* ============================================================

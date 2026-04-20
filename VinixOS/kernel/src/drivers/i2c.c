@@ -187,16 +187,13 @@ void i2c_init(void)
 
     uart_printf("[I2C] Initializing I2C0...\n");
 
-    /* Step 0: Configure dedicated I2C0 pads (mode 0, pullup, RX active)
-     * ROM bootloader already sets these for PMIC access; we re-assert to own state */
+    /* Re-assert pins — ROM had them muxed for PMIC access. */
     mmio_write32(CONF_I2C0_SCL, PAD_I2C0_MODE);
     mmio_write32(CONF_I2C0_SDA, PAD_I2C0_MODE);
     uart_printf("[I2C] Pinmux configured (SCL=0x%x, SDA=0x%x)\n",
                 mmio_read32(CONF_I2C0_SCL), mmio_read32(CONF_I2C0_SDA));
 
-    /* Step 1: Enable I2C0 module clock
-     * I2C0 is in Wakeup domain (CM_WKUP_I2C0_CLKCTRL)
-     * Functional clock = 48MHz (PER_CLKOUTM2 / 4) */
+    /* I2C0 lives in Wakeup domain; FCLK = 48 MHz (PER_CLKOUTM2 / 4). */
     mmio_write32(CM_WKUP_I2C0_CLKCTRL, MODULEMODE_ENABLE);
 
     timeout = I2C_TIMEOUT;
@@ -212,15 +209,13 @@ void i2c_init(void)
     }
     uart_printf("[I2C] Clock enabled\n");
 
-    /* Step 2: Disable module before configuration */
+    /* HW spec: module must be disabled before reconfiguring. */
     mmio_write32(I2C0_BASE + I2C_CON, 0);
 
-    /* Step 3: Software reset */
     mmio_write32(I2C0_BASE + I2C_SYSC, I2C_SYSC_SRST);
 
     timeout = I2C_TIMEOUT;
     while (!(mmio_read32(I2C0_BASE + I2C_SYSS) & I2C_SYSS_RDONE) && timeout--) {
-        /* Wait for reset completion */
     }
     if (!timeout) {
         uart_printf("[I2C] ERROR: Soft reset timeout\n");
@@ -228,44 +223,32 @@ void i2c_init(void)
     }
     uart_printf("[I2C] Soft reset complete\n");
 
-    /* Step 4: Configure prescaler
-     * ICLK = SCLK / (PSC + 1)
-     * SCLK = 48MHz (functional clock)
-     * PSC = 3 → ICLK = 48MHz / 4 = 12MHz
-     * ~12MHz recommended for standard/fast mode */
+    /* Prescaler: ICLK = 48 MHz / (PSC+1). PSC=3 → ICLK=12 MHz. */
     mmio_write32(I2C0_BASE + I2C_PSC, 3);
 
-    /* Step 5: Configure SCL timing for ~100kHz standard mode
-     * tLOW  = (SCLL + 7) × ICLK_period
-     * tHIGH = (SCLH + 5) × ICLK_period
-     * For 100kHz: period = 10us → tLOW = tHIGH = 5us
-     * SCLL = (5us × 12MHz) - 7 = 60 - 7 = 53
-     * SCLH = (5us × 12MHz) - 5 = 60 - 5 = 55 */
+    /* 100 kHz standard mode @ ICLK=12 MHz:
+     * tLOW = (SCLL+7)·Tclk, tHIGH = (SCLH+5)·Tclk; want 5us each.
+     * SCLL = 5e-6 · 12e6 − 7 = 53,  SCLH = 5e-6 · 12e6 − 5 = 55. */
     mmio_write32(I2C0_BASE + I2C_SCLL, 53);
     mmio_write32(I2C0_BASE + I2C_SCLH, 55);
 
-    /* Step 6: Set own address (arbitrary, we are master) */
+    /* Arbitrary master address. */
     mmio_write32(I2C0_BASE + I2C_OA, 0x01);
 
-    /* Step 7: Clear all interrupt status */
     i2c_clear_status();
 
-    /* Step 8: Disable all interrupts (polling mode) */
+    /* Polling mode — mask every IRQ. */
     mmio_write32(I2C0_BASE + I2C_IRQENABLE_CLR, 0x7FFF);
 
-    /* Step 9: Enable module */
     mmio_write32(I2C0_BASE + I2C_CON, I2C_CON_EN);
 
-    /* Small delay for module to stabilize */
     for (volatile int i = 0; i < 1000; i++);
 
-    /* Verify: read module revision */
     val = mmio_read32(I2C0_BASE + I2C_REVNB_LO);
     uart_printf("[I2C] Module revision = 0x%x\n", val);
 
-    /* Physical bus state: SCL_I_FUNC=bit8, SDA_I_FUNC=bit6
-     * Both should be 1 (pulled high) when bus is idle.
-     * If either is 0 → stuck low → hardware/pinmux problem. */
+    /* Idle bus must read SCL_I_FUNC=bit8, SDA_I_FUNC=bit6 high.
+     * 0 = stuck low → pinmux or HW problem. */
     val = mmio_read32(I2C0_BASE + I2C_SYSTEST);
     uart_printf("[I2C] SYSTEST=0x%x  SCL_I=%d  SDA_I=%d  (1=high=OK)\n",
                 val, (val >> 8) & 1, (val >> 6) & 1);

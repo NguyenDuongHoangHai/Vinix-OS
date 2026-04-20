@@ -1,7 +1,7 @@
 /* ============================================================
  * timer.c
  * ------------------------------------------------------------
- * DMTimer2 driver implementation
+ * AM335x DMTimer2 driver.
  * ============================================================ */
 
 #include "types.h"
@@ -82,25 +82,11 @@
 
 static volatile uint32_t timer_ticks = 0;
 
-/* ============================================================
- * Timer Clock Configuration
- * ============================================================ */
-
-/**
- * Enable DMTimer2 module clock
- * 
- * Clock initialization steps:
- * 1. Wake up L4LS clock domain
- * 2. Enable module clock
- * 3. Wait until module is fully functional
- * 
- * CRITICAL: Must be called before any timer register access
- */
+/* CRITICAL: must run before any timer register access. */
 static void timer2_clock_enable(void)
 {
     uint32_t val;
 
-    /* Step 1: Ensure L4LS clock domain is awake */
     val = mmio_read32(CM_PER_L4LS_CLKSTCTRL);
     if ((val & CLKTRCTRL_MASK) != CLKTRCTRL_SW_WKUP) {
         mmio_write32(CM_PER_L4LS_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
@@ -109,7 +95,6 @@ static void timer2_clock_enable(void)
         if (!timeout) { uart_printf("[TIMER] L4LS wakeup timeout\n"); while (1); }
     }
 
-    /* Step 2: Enable Timer2 module clock + wait IDLEST=FUNCTIONAL */
     mmio_write32(CM_PER_TIMER2_CLKCTRL, MODULEMODE_ENABLE);
 
     uint32_t timeout = 100000;
@@ -125,56 +110,32 @@ static void timer2_clock_enable(void)
     while (1);
 }
 
-/* ============================================================
- * Timer IRQ Handler
- * ============================================================ */
-
+/* INTC EOI runs in irq_dispatch() — handler only clears peripheral IRQ. */
 static void timer_irq_handler(void *data)
 {
-    /*
-     * Timer IRQ Handler
-     * 
-     * CONTRACT:
-     * - Must clear interrupt status at peripheral
-     * - Must be fast (no blocking operations)
-     * - INTC EOI will be called by irq_dispatch()
-     */
-    
-    /* Clear interrupt status (write 1 to clear) */
     mmio_write32(DMTIMER2_BASE + IRQSTATUS, IRQ_OVF_IT_FLAG);
-    
-    /* Update tick count */
+
     timer_ticks++;
-    
-    if (timer_ticks % 100 == 0) {
-    }
 
     scheduler_tick();
 }
 
-/* ============================================================
- * Timer Driver Implementation
- * ============================================================ */
-
 void timer_init(void)
 {
-    /* Step 0: clock on */
     timer2_clock_enable();
 
-    /* Step 1: soft reset */
     mmio_write32(DMTIMER2_BASE + TIOCP_CFG, TIOCP_SOFTRESET);
     uint32_t timeout = 10000;
     while ((mmio_read32(DMTIMER2_BASE + TIOCP_CFG) & TIOCP_SOFTRESET) && timeout--);
     if (!timeout) { uart_printf("[TIMER] soft reset timeout\n"); while (1); }
 
-    /* Step 2: posted mode + stop + clear irqs */
     mmio_write32(DMTIMER2_BASE + TSICR, TSICR_POSTED);
     mmio_write32(DMTIMER2_BASE + TCLR, 0);
     timeout = 10000;
     while ((mmio_read32(DMTIMER2_BASE + TWPS) & TWPS_W_PEND_TCLR) && timeout--);
     mmio_write32(DMTIMER2_BASE + IRQSTATUS, 0x7);
 
-    /* Step 3: reload value for 10 ms @ 24 MHz */
+    /* 10 ms @ 24 MHz: reload = 0xFFFFFFFF − (24M/1000)·10 + 1. */
     uint32_t freq = 24000000;
     uint32_t period_ms = 10;
     uint32_t count = (freq / 1000) * period_ms;
@@ -186,7 +147,6 @@ void timer_init(void)
     timeout = 10000;
     while ((mmio_read32(DMTIMER2_BASE + TWPS) & TWPS_W_PEND_TCRR) && timeout--);
 
-    /* Step 4: enable overflow IRQ, register handler, unmask */
     mmio_write32(DMTIMER2_BASE + IRQENABLE_SET, IRQ_OVF_IT_FLAG);
     if (irq_register_handler(TIMER2_IRQ, timer_irq_handler, NULL) != 0) {
         uart_printf("[TIMER] irq_register_handler failed\n");
@@ -194,7 +154,6 @@ void timer_init(void)
     }
     intc_enable_irq(TIMER2_IRQ);
 
-    /* Step 5: auto-reload + start */
     mmio_write32(DMTIMER2_BASE + TCLR, TCLR_AR);
     timeout = 10000;
     while ((mmio_read32(DMTIMER2_BASE + TWPS) & TWPS_W_PEND_TCLR) && timeout--);
@@ -208,24 +167,15 @@ uint32_t timer_get_ticks(void)
     return timer_ticks;
 }
 
-/* ============================================================
- * Early Init + Polling Delay
- *
- * timer_early_init(): enable clock, reset, start free-running.
- * delay_ms(): poll TCRR counter for accurate ms delay.
- * Safe to call before timer_init() — timer_init() reconfigures.
- * ============================================================ */
-
 #define TIMER_FCLK_HZ   24000000
-#define TICKS_PER_MS     (TIMER_FCLK_HZ / 1000)   /* 24000 */
+#define TICKS_PER_MS     (TIMER_FCLK_HZ / 1000)
 
+/* Free-running setup for delay_ms() before timer_init() takes over. */
 void timer_early_init(void)
 {
-    /* 1. Wake L4LS clock domain */
     if ((mmio_read32(CM_PER_L4LS_CLKSTCTRL) & CLKTRCTRL_MASK) != CLKTRCTRL_SW_WKUP)
         mmio_write32(CM_PER_L4LS_CLKSTCTRL, CLKTRCTRL_SW_WKUP);
 
-    /* 2. Select 24MHz M_OSC as Timer2 FCLK source */
     #define CM_DPLL_BASE                0x44E00500
     #define CM_DPLL_CLKSEL_TIMER2_CLK  (CM_DPLL_BASE + 0x08)
     #define CLKSEL_CLK_M_OSC            0x1
@@ -234,17 +184,14 @@ void timer_early_init(void)
     while ((mmio_read32(CM_DPLL_CLKSEL_TIMER2_CLK) & 0x3) != CLKSEL_CLK_M_OSC)
         ;
 
-    /* 3. Enable module clock */
     mmio_write32(CM_PER_TIMER2_CLKCTRL, MODULEMODE_ENABLE);
     while (((mmio_read32(CM_PER_TIMER2_CLKCTRL) >> IDLEST_SHIFT) & IDLEST_MASK) != IDLEST_FUNC)
         ;
 
-    /* 4. Soft reset — TIOCP_CFG bit 0 self-clears (standard DMTimer2-7) */
     mmio_write32(DMTIMER2_BASE + TIOCP_CFG, TIOCP_SOFTRESET);
     while (mmio_read32(DMTIMER2_BASE + TIOCP_CFG) & TIOCP_SOFTRESET)
         ;
 
-    /* 5. Start free-running (ST=1, no auto-reload, no interrupt) */
     mmio_write32(DMTIMER2_BASE + TCLR, TCLR_ST);
 }
 

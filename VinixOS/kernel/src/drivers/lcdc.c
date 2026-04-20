@@ -339,43 +339,33 @@ static void framebuffer_setup(void)
 
 void lcdc_init(void)
 {
-    /* Step 0: Configure LCD pin mux before enabling LCDC */
     lcd_pinmux_setup();
-
-    /* Step 1: Configure Display PLL for pixel clock */
     dpll_disp_setup();
-
-    /* Step 2: Enable LCDC module clock */
     lcdc_clock_enable();
-
-    /* Step 3: Setup framebuffer memory */
     framebuffer_setup();
 
-    /* Step 4: Enable LCDC internal clocks */
     mmio_write32(LCDC_BASE + LCD_CLKC_ENABLE,
                  LCD_CORECLKEN | LCD_LIDDCLKEN | LCD_DMACLKEN);
 
-    /* Step 4b: Reset all LCDC clock domains (QNX driver does this).
-     * Without reset, stale state from ROM/bootloader causes SYNC_LOST. */
-    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x0F);  /* Assert all resets */
+    /* Reset clock domains — without it, stale ROM/bootloader state
+     * triggers SYNC_LOST when raster starts. */
+    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x0F);
     for (volatile int i = 0; i < 1000; i++);
-    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x00);  /* De-assert */
+    mmio_write32(LCDC_BASE + LCD_CLKC_RESET, 0x00);
     for (volatile int i = 0; i < 1000; i++);
     uart_printf("[LCDC] Clock domain reset complete\n");
 
-    /* Step 5: Disable raster before configuration */
+    /* Raster must be off while reconfiguring. */
     mmio_write32(LCDC_BASE + LCD_RASTER_CTRL, 0);
 
-    /* Step 6: Set raster mode + clock divider.
-     * AUTO_UFLOW_RESTART: automatically restart raster on FIFO underflow
-     * instead of halting — prevents signal dropout on transient stalls. */
+    /* AUTO_UFLOW_RESTART auto-resumes raster after FIFO underflow
+     * instead of halting — survives transient stalls. */
     mmio_write32(LCDC_BASE + LCD_CTRL,
                  LCD_CLK_DIVISOR(LCDC_CLKDIV) |
                  LCD_AUTO_UFLOW_RESTART | LCD_RASTER_MODE);
 
-    /* Step 7: Configure DMA — must include 32-byte palette header.
-     * LCDC reads palette first (0x4000 = raw data bypass), then pixels.
-     * DMA priority bits [18:16] default to 000 = highest — no need to set. */
+    /* DMA reads palette header first (0x4000 = raw bypass) then pixels.
+     * Priority bits [18:16] default to 000 = highest, leave as-is. */
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_BASE, FB_PA_BASE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB0_CEIL, FB_PA_BASE + PALETTE_SIZE + FB_SIZE);
     mmio_write32(LCDC_BASE + LCD_LCDDMA_FB1_BASE, FB_PA_BASE);
