@@ -79,12 +79,6 @@ void scheduler_init(void)
     TRACE_SCHED("Scheduler initialized (MAX_TASKS: %d)", MAX_TASKS);
 }
 
-/**
- * Add a task to scheduler
- * 
- * @param task Pointer to initialized task structure
- * @return 0 on success, -1 if task table full
- */
 int scheduler_add_task(struct task_struct *task)
 {
     if (task_count >= MAX_TASKS) {
@@ -162,16 +156,9 @@ void scheduler_start(void)
  */
 volatile bool need_reschedule = false;
 
-/* ============================================================
- * scheduler_tick - Called from Timer ISR
- * ============================================================
- * 
- * CRITICAL: This runs in IRQ mode!
- * We CANNOT safely call context_switch() here because:
- * - IRQ stack is shared
- * - Nested interrupts could corrupt stack
- * 
- * Solution: Just set a flag and let tasks yield voluntarily.
+/* CRITICAL: runs in IRQ mode — cannot context_switch() here
+ * because IRQ stack is shared and nested IRQs would corrupt it.
+ * Set need_reschedule and let tasks yield voluntarily.
  */
 void scheduler_tick(void)
 {
@@ -244,61 +231,40 @@ void scheduler_yield(void)
     struct task_struct *prev_task;
     struct task_struct *next_task;
     uint32_t next_index;
-    
-    // uart_printf("[SCHED] Yield called (current_task=%u)\n", 
-    //             current_task ? current_task->id : 999);
-    
-    /* Check if reschedule is actually needed */
+
     if (!need_reschedule) {
         return;
     }
-    
-    /* Clear flag atomically */
+
     need_reschedule = false;
-    
-    /* Stack integrity check (canary) */
+
     if (current_task != NULL) {
         uint32_t *canary_ptr = (uint32_t *)current_task->stack_base;
         if (*canary_ptr != STACK_CANARY_VALUE) {
-            TRACE_SCHED("FATAL: Stack overflow detected in task %d ('%s')", 
+            TRACE_SCHED("FATAL: Stack overflow detected in task %d ('%s')",
                         current_task->id, current_task->name);
             uart_printf("[SCHED] Canary Addr: 0x%08x. Expected: 0x%08x. Actual: 0x%08x\n",
                         (uint32_t)canary_ptr, STACK_CANARY_VALUE, *canary_ptr);
             PANIC("Stack Canary Corrupted!");
         }
     }
-    
-    /* Only one task? No need to switch */
+
     if (task_count == 1) {
         return;
     }
 
-    /* Save pointer to current task */
     prev_task = current_task;
-    
-    /* Find next ready task (simple round-robin) */
+
     next_index = current_task_index;
     next_task = prev_task;
     uint32_t search_count = 0;
-    
-    // uart_printf("[SCHED] Finding next task...\n");
-    
-    /* Loop to find a non-ZOMBIE, READY task */
+
     while (search_count < MAX_TASKS) {
         next_index = (next_index + 1) % MAX_TASKS;
         search_count++;
-        
-        /* Debug log for search (can be noisy) */
-        
-        // uart_printf("[SCHED]   Task %u: %s (state=%u)\n",
-        //             next_index,
-        //             tasks[next_index] ? tasks[next_index]->name : "NULL",
-        //             tasks[next_index] ? tasks[next_index]->state : 99);
-        
 
-        if (tasks[next_index] != NULL && 
+        if (tasks[next_index] != NULL &&
             tasks[next_index]->state == TASK_STATE_READY) {
-            // uart_printf("[SCHED]   → Selected task %u\n", next_index);
             next_task = tasks[next_index];
             break;
         }
@@ -345,60 +311,11 @@ void scheduler_yield(void)
     current_task_index = next_index;
     current_task = next_task;
 
-    /* NOTE: TTBR0 switch happens inside context_switch() assembly, in
-     * between saving prev's SP and loading next's SP — otherwise the
-     * stack VA of either side can briefly map to the wrong pgd. */
-    
-    // uart_printf("[SCHED] Switching: %u (%s) -> %u (%s)\n",
-    //             prev_task->id, prev_task->name,
-    //             next_task->id, next_task->name);
-    
-    /* Debug: Check Stack Depth (DISABLED for reduced noise) */
-    // if (prev_task->id == 0) {
-    //     uint32_t current_sp;
-    //     __asm__ volatile("mov %0, sp" : "=r"(current_sp));
-    //     uart_printf("[SCHED] Idle SP before switch: 0x%08x (Base: 0x%08x, Limit: 0x%08x)\n", 
-    //                 current_sp, (uint32_t)prev_task->stack_base, (uint32_t)prev_task->stack_base - prev_task->stack_size);
-    // }
-    
-    /* CRITICAL DEBUG PROBE: Inspect Shell Stack (DISABLED for reduced noise) */
-    // if (next_task->id == 1) {
-    //     uint32_t *sp = (uint32_t *)next_task->context.sp;
-    //     uart_printf("[DEBUG] Probing Shell Stack before switch:\n");
-    //     uart_printf("  SP_svc = 0x%08x\n", (uint32_t)sp);
-    //     
-    //     /* 
-    //      * Logic:
-    //      * Kernel Frame (9 words) = 36 bytes. sp[0]..sp[8]
-    //      * SPSR, PAD (2 words) = 8 bytes. sp[9]..sp[10]
-    //      * User Frame (14 words) = 56 bytes. sp[11]..sp[24]
-    //      * PC should be at sp[24] (last popped val)
-    //      */
-    //     if (sp) {
-    //          uart_printf("  Frame[8] (LR_svc-Trampoline) = 0x%08x\n", sp[8]);
-    //          uart_printf("  Frame[9] (SPSR) = 0x%08x\n", sp[9]);
-    //          uart_printf("  Frame[24] (User Entry PC) = 0x%08x\n", sp[24]);
-    //          
-    //          /* DUMP FULL FRAME */
-    //          uart_printf("  Full Frame Dump:\n");
-    //          for(int i=0; i<=24; i++) {
-    //              uart_printf("    SP[%d] = 0x%08x\n", i, sp[i]);
-    //          }
-    //     }
-    // }
-    
-    /* Perform context switch */
+    /* CRITICAL: TTBR0 swap lives inside context_switch() asm, between
+     * saving prev's SP and loading next's — otherwise either stack VA
+     * may briefly resolve under the wrong pgd. */
     context_switch(prev_task, next_task);
-    
-    /* Resumed (DISABLED for reduced noise) */
-    // uart_printf("[SCHED] Resumed task %u (%s)\n", current_task->id, current_task->name);
 }
-
-/**
- * Get current running task
- * @return Pointer to current task, or NULL if scheduler not started
- */
-
 
 struct task_struct *scheduler_current_task(void)
 {
@@ -434,23 +351,13 @@ void scheduler_release_slot(uint32_t idx)
     }
 }
 
-/**
- * Get list of tasks
- * 
- * @param buf User buffer (array of process_info_t)
- * @param max_count Max number of entries
- * @return Number of tasks filled
- */
+/* Caller (svc_handler) has already validated buf via validate_user_pointer(). */
 int scheduler_get_tasks(void *buf, uint32_t max_count)
 {
     process_info_t *info = (process_info_t *)buf;
     uint32_t count = 0;
-    
-    /* 
-     * NOTE: Buffer validation is handled by svc_handler.c's validate_user_pointer()
-     * before calling this function. No additional validation needed here.
-     */
-    
+
+
     for (int i = 0; i < MAX_TASKS && count < max_count; i++) {
         struct task_struct *t = tasks[i];
         if (t != NULL) {

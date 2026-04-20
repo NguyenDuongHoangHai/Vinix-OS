@@ -2,10 +2,9 @@
 #include "syscalls.h"
 
 /* ============================================================
- * System Call Wrappers
+ * syscall.c
  * ------------------------------------------------------------
- * Assembly wrappers for SVC instruction to ensure correct
- * register setup and avoid compiler optimization.
+ * Userspace syscall SVC wrappers.
  * ============================================================ */
 
 /* ============================================================

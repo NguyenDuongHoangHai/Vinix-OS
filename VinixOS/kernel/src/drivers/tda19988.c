@@ -1,9 +1,7 @@
 /* ============================================================
  * tda19988.c
  * ------------------------------------------------------------
- * NXP TDA19988 HDMI Transmitter Driver
- * Target: BeagleBone Black (AM335x), 640x480@60Hz
- * I2C interface via I2C0 at 0x44E0B000
+ * NXP TDA19988 HDMI transmitter driver — I2C0 control.
  * ============================================================ */
 
 #include "tda19988.h"

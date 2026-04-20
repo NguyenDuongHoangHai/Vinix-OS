@@ -1,9 +1,7 @@
 /* ============================================================
  * exception_entry.S
  * ------------------------------------------------------------
- * Exception Entry Stubs
- * Handles state saving/restoring and mode switching for all
- * ARM exceptions (IRQ, SVC, Abort, Undefined).
+ * ARM exception entry stubs — state save/restore + mode switch.
  * ============================================================ */
 
 /* ============================================================

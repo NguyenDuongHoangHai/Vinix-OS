@@ -1,13 +1,8 @@
 /* ============================================================
  * i2c.c
  * ------------------------------------------------------------
- * I2C0 Driver — Polling Mode
- * Target: AM335x I2C0 (L4_WKUP domain)
- *
- * Used for communication with TDA19988 HDMI transmitter.
- * Implements master transmit/receive with 7-bit addressing.
- *
-* ============================================================ */
+ * AM335x I2C0 polling-mode driver — 7-bit master TX/RX.
+ * ============================================================ */
 
 #include "types.h"
 #include "i2c.h"

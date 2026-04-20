@@ -1,10 +1,7 @@
 /* ============================================================
  * tda19988.h
  * ------------------------------------------------------------
- * NXP TDA19988 HDMI Transmitter Driver Interface
- * Communicates via I2C0 (0x44E0B000)
- * HDMI core I2C addr: 0x70 (7-bit)
- * CEC core I2C addr:  0x34 (7-bit)
+ * NXP TDA19988 HDMI transmitter driver interface.
  * ============================================================ */
 
 #ifndef TDA19988_H

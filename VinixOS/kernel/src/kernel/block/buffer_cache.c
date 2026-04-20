@@ -1,8 +1,7 @@
 /* ============================================================
  * buffer_cache.c
  * ------------------------------------------------------------
- * O(n) scan across 64 slots — hash chaining is overkill at this
- * size and keeps the implementation auditable.
+ * Linear-scan block cache — 64 slots, no hash chaining.
  * ============================================================ */
 
 #include "buffer_cache.h"

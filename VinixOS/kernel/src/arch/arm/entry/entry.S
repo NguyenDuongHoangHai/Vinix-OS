@@ -1,24 +1,11 @@
 /* ============================================================
  * entry.S
  * ------------------------------------------------------------
- * Boot entry — BSS clear, MMU enable, trampoline to high VA
- *
- * Runs at PA 0x80000000+ (in .text.boot_entry, VMA == LMA).
- * After enabling the MMU and reloading stack pointers, this
- * code jumps to kernel_main() at VA 0xC0xxxxxx.
- *
- * Boot flow:
- *   1. Clear .bss (using PA-converted addresses)
- *   2. Build page table (call C helper at PA)
- *   3. Enable MMU (identity + high maps active)
- *   4. Reload all stack pointers to VA (through identity map)
- *   5. Jump to kernel_main at VA ← THE TRAMPOLINE
- *
- * Assumptions:
- *   - CPU is in SVC mode, IRQ/FIQ masked
- *   - All exception stacks set to PA in reset.S
- *   - MMU and cache are OFF
+ * Boot trampoline — clears BSS at PA, enables MMU, jumps to high VA.
  * ============================================================ */
+
+/* CRITICAL preconditions on entry: SVC mode, IRQ/FIQ masked,
+ * MMU + cache OFF, exception stacks pointing to PA (reset.S). */
 
     .section .text.boot_entry, "ax"
     .align  4

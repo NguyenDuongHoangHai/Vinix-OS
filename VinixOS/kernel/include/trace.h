@@ -1,8 +1,7 @@
 /* ============================================================
  * trace.h
  * ------------------------------------------------------------
- * Trace macros for internal kernel observability.
- * TRACE != LOG: Trace is for reasoning about execution flow.
+ * Kernel execution-flow trace macros (distinct from logging).
  * ============================================================ */
 
 #ifndef TRACE_H

@@ -1,9 +1,7 @@
 /* ============================================================
  * device.c
  * ------------------------------------------------------------
- * Generic bus registry — drivers and devices pile up in fixed
- * arrays per bus. Match/probe runs synchronously when either
- * side registers, mirroring Linux's bus_probe_device path.
+ * Generic bus registry — synchronous match/probe on register.
  * ============================================================ */
 
 #include "device.h"

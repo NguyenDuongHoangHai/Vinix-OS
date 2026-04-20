@@ -1,8 +1,7 @@
 /* ============================================================
  * timer.h
  * ------------------------------------------------------------
- * DMTimer driver interface
- * Target: AM335x DMTimer2 (test driver)
+ * AM335x DMTimer2 driver interface.
  * ============================================================ */
 
 #ifndef TIMER_H
@@ -24,35 +23,16 @@
  * Timer API
  * ============================================================ */
 
-/**
- * Initialize Timer2
- * - Configures timer for periodic interrupts
- * - Registers IRQ handler
- * - Enables IRQ in INTC
- * - Starts timer
- * 
- * Note: Does NOT enable IRQ in CPSR (kernel_main must do this)
- */
+/* Configures Timer2 for periodic IRQ. Caller must enable IRQ in CPSR. */
 void timer_init(void);
 
-/**
- * Get timer tick count
- * @return Number of timer interrupts handled
- */
 uint32_t timer_get_ticks(void);
 
-/**
- * Early timer init — enables DMTimer2 clock + free-running mode.
- * Call once before any delay_ms() usage.
- * timer_init() later reconfigures for scheduler interrupts.
- */
+/* Enables DMTimer2 clock + free-running mode for delay_ms().
+ * timer_init() later reconfigures it for scheduler interrupts. */
 void timer_early_init(void);
 
-/**
- * Accurate millisecond delay using DMTimer2 hardware counter.
- * Requires timer_early_init() or timer_init() called first.
- * Polling-based — no interrupts needed.
- */
+/* Polled delay; requires timer_early_init() or timer_init() first. */
 void delay_ms(uint32_t ms);
 
 #endif /* TIMER_H */

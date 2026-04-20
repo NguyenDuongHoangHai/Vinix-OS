@@ -18,10 +18,6 @@
  * Helper Functions
  * ============================================================ */
 
-/**
- * Print exception context for debugging
- * @param ctx Exception context captured by entry stub
- */
 static void print_exception_context(struct exception_context *ctx)
 {
     uart_printf("\n");
@@ -41,11 +37,6 @@ static void print_exception_context(struct exception_context *ctx)
     uart_printf("\n");
 }
 
-/**
- * Decode SPSR mode bits
- * @param spsr SPSR value
- * @return Mode string
- */
 static const char *decode_cpu_mode(uint32_t spsr)
 {
     switch (spsr & 0x1F)

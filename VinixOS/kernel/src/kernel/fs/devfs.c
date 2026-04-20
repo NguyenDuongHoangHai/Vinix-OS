@@ -1,9 +1,7 @@
 /* ============================================================
  * devfs.c
  * ------------------------------------------------------------
- * Thin adapter that plugs char_device callbacks into the VFS
- * operations table. Each registered device becomes a file whose
- * file_index is its slot in char_dev's registry.
+ * Adapter exposing char_device callbacks through VFS ops.
  * ============================================================ */
 
 #include "devfs.h"

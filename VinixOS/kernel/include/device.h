@@ -1,9 +1,7 @@
 /* ============================================================
  * device.h
  * ------------------------------------------------------------
- * Generic device / driver / bus model. Linux-shape but sized
- * down for VinixOS: fixed arrays instead of list_head, and a
- * single platform bus is all we care about for now.
+ * Generic device / driver / bus model.
  * ============================================================ */
 
 #ifndef DEVICE_H

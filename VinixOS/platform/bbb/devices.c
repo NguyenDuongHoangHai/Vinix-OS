@@ -1,9 +1,7 @@
 /* ============================================================
  * platform/bbb/devices.c
  * ------------------------------------------------------------
- * BeagleBone Black platform bus table. Each entry is picked up
- * by platform_init() and exposed to whichever platform_driver
- * matches on .name.
+ * BeagleBone Black platform bus table.
  * ============================================================ */
 
 #include "platform_device.h"

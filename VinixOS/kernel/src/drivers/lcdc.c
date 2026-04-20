@@ -1,15 +1,10 @@
 /* ============================================================
  * lcdc.c
  * ------------------------------------------------------------
- * LCD Controller Driver — Raster Mode (TFT 16bpp RGB565)
- * Target: AM335x LCDC
- *
- * Configures LCDC to output 800x600 @ 60Hz via raster mode.
- * DMA engine reads framebuffer from DDR3 and outputs pixel
- * data on LCD pins (consumed by TDA19988 HDMI transmitter).
- *
- * Reference implementation: U-Boot am335x-fb.c
+ * AM335x LCDC raster driver — 800x600@60Hz, RGB565.
  * ============================================================ */
+
+/* Pattern reference: U-Boot am335x-fb.c — re-implemented. */
 
 #include "types.h"
 #include "lcdc.h"

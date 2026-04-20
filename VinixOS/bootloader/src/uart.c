@@ -1,6 +1,7 @@
 /* ============================================================
  * uart.c
- * UART0 Driver for AM335x (BeagleBone Black)
+ * ------------------------------------------------------------
+ * AM335x UART0 driver (bootloader).
  * ============================================================ */
 
 #include "am335x.h"
@@ -20,7 +21,6 @@
 
 void uart_flush(void)
 {
-    /* Wait for TX FIFO and shift register to be empty */
     while ((readl(UART0_LSR) & UART_LSR_TEMT) == 0);
 }
 
@@ -29,28 +29,22 @@ void uart_init(void)
     uint32_t divisor;
     uint32_t i;
 
-    /* 0. Enable UART0 clock and pin mux
-     * CRITICAL: ROM only enables UART0 clock when UART boot is in the
-     * boot sequence. On cold boot with S2 (SD card first), ROM may skip
-     * UART0 clock enable entirely → UART registers inaccessible. */
-    writel(0x2, CM_WKUP_UART0_CLKCTRL);         /* Enable UART0 clock */
-    while ((readl(CM_WKUP_UART0_CLKCTRL) & 0x3) != 0x2);  /* Wait until enabled */
+    /* CRITICAL: ROM only enables UART0 clock when UART is in the boot
+     * sequence. On cold boot with SD-first, the clock stays gated and
+     * UART registers are inaccessible — must enable here. */
+    writel(0x2, CM_WKUP_UART0_CLKCTRL);
+    while ((readl(CM_WKUP_UART0_CLKCTRL) & 0x3) != 0x2);
 
-    /* Pin mux: Mode 0, pull-up, receiver enabled
-     * CONF_UART0_RXD: Mode 0 + RXACTIVE + PULLUP = 0x30
-     * CONF_UART0_TXD: Mode 0 + PULLUP = 0x10 (output, no RXACTIVE) */
+    /* Pin mux mode 0 + pull-up; RXD adds RXACTIVE. */
     writel(0x30, CONF_UART0_RXD);
     writel(0x10, CONF_UART0_TXD);
 
-    /* 1. Hard reset UART by disabling it */
     writel(UART_DISABLE, UART0_MDR1);
     delay(10000);
-    
-    /* 2. Clear FIFOs and drain any garbage data */
-    writel(0x07, UART0_FCR);  /* Enable + reset TX/RX FIFOs */
+
+    writel(0x07, UART0_FCR);
     delay(1000);
-    
-    /* Drain RX FIFO completely */
+
     for (i = 0; i < 16; i++) {
         if (readl(UART0_LSR) & UART_LSR_RXFIFOE) {
             (void)readl(UART0_RHR);
@@ -58,58 +52,42 @@ void uart_init(void)
             break;
         }
     }
-    
-    /* 3. Configure baud rate: 115200 @ 48MHz
-     * Divisor = 48,000,000 / (16 * 115200) ≈ 26
-     * Actual baud rate: 115,384.6 bps (0.16% error, acceptable) */
+
+    /* 115200 @ 48 MHz → divisor 26 (actual 115384.6, 0.16% error). */
     divisor = 26;
-    
-    /* Enable divisor latch access */
+
     writel(UART_LCR_BAUD_SETUP, UART0_LCR);
-    
-    /* Set divisor (16-bit value) */
+
     writel(divisor & 0xFF, UART0_DLL);
     writel((divisor >> 8) & 0xFF, UART0_DLH);
-    
-    /* 4. Configure line format: 8N1 */
+
     writel(UART_LCR_8N1, UART0_LCR);
-    
-    /* 5. Configure FIFO (enable, clear, trigger level) */
+
     writel(0x07, UART0_FCR);
     delay(1000);
-    
-    /* 6. Enable UART in 16x oversampling mode */
+
     writel(UART_16X_MODE, UART0_MDR1);
-    
-    /* 7. Wait for UART to stabilize */
+
     delay(10000);
-    
-    /* 8. Final flush */
+
     while ((readl(UART0_LSR) & UART_LSR_TEMT) == 0);
 }
 
-/* Send single character */
 void uart_putc(char c)
 {
-    /* Handle newline: send CR before LF */
     if (c == '\n') {
         uart_putc('\r');
     }
-    
-    /* Wait for TX FIFO empty before writing */
+
     while ((readl(UART0_LSR) & UART_LSR_TXFIFOE) == 0);
-    
-    /* Write character to transmit register */
+
     writeb(c, UART0_THR);
-    
-    /* Small delay for status update */
+
     { volatile int d; for(d=0; d<100; d++); }
 
-    /* Wait for TX FIFO empty after writing */
     while ((readl(UART0_LSR) & UART_LSR_TXFIFOE) == 0);
 }
 
-/* Send string */
 void uart_puts(const char *s)
 {
     while (*s) {
@@ -117,15 +95,13 @@ void uart_puts(const char *s)
     }
 }
 
-/* Print hexadecimal value */
 void uart_print_hex(uint32_t val)
 {
     int i;
-    static const char hex_digits[] = "0123456789ABCDEF"; 
-    
+    static const char hex_digits[] = "0123456789ABCDEF";
+
     uart_puts("0x");
-    
-    /* Print 8 hexadecimal digits (32 bits) */
+
     for (i = 28; i >= 0; i -= 4) {
         int nibble = (val >> i) & 0xF;
         uart_putc(hex_digits[nibble]);

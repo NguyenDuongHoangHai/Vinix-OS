@@ -1,12 +1,7 @@
 /* ============================================================
  * mmu_enable.S
  * ------------------------------------------------------------
- * MMU enable sequence
- *
- * Placed in .text.mmu_trampoline so VMA == LMA == PA.
- * Called from entry.S (also at PA) before the jump to high VA.
- * After this function returns, both identity map (PA→PA) and
- * high map (PA→VA 0xC0xxxxxx) are active.
+ * MMU enable trampoline — runs at PA, activates id + high maps.
  * ============================================================ */
 
     .section .text.mmu_trampoline, "ax"

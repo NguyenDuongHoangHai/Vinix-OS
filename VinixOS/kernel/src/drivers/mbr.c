@@ -1,20 +1,7 @@
 /* ============================================================
  * mbr.c
  * ------------------------------------------------------------
- * MBR Partition Table Parser
- *
- * MBR structure (512 bytes, sector 0):
- *   Offset 0x000 .. 0x1BD : Bootstrap code (unused here)
- *   Offset 0x1BE .. 0x1FD : 4 partition entries (16 bytes each)
- *   Offset 0x1FE .. 0x1FF : Signature 0xAA55 (little-endian)
- *
- * Partition entry (16 bytes):
- *   +0x00 : Status (0x80 = bootable)
- *   +0x01 : CHS first sector (3 bytes, ignored)
- *   +0x04 : Partition type (0x0B, 0x0C = FAT32)
- *   +0x05 : CHS last sector (3 bytes, ignored)
- *   +0x08 : LBA start (4 bytes, little-endian)
- *   +0x0C : Sector count (4 bytes, little-endian)
+ * MBR partition table parser.
  * ============================================================ */
 
 #include "types.h"

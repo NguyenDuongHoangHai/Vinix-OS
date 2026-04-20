@@ -2,7 +2,6 @@
  * sync_selftest.c
  * ------------------------------------------------------------
  * Single-threaded mechanics check for atomic + spinlock.
- * Real concurrency exercised when P3 brings multi-task tests.
  * ============================================================ */
 
 #include "atomic.h"

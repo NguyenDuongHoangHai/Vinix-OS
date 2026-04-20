@@ -1,8 +1,7 @@
 /* ============================================================
  * irq.h
  * ------------------------------------------------------------
- * IRQ framework interface
- * Target: AM335x / BeagleBone Black
+ * IRQ framework interface.
  * ============================================================ */
 
 #ifndef IRQ_H
@@ -47,63 +46,24 @@
  * IRQ Handler Type
  * ============================================================ */
 
-/**
- * IRQ handler function type
- * @param data Driver-specific data passed during registration
- */
 typedef void (*irq_handler_t)(void *data);
 
 /* ============================================================
  * IRQ Framework API
  * ============================================================ */
 
-/**
- * Initialize IRQ framework
- * Must be called before any IRQ registration
- */
 void irq_init(void);
 
-/**
- * Register IRQ handler
- * @param irq_num   IRQ number (0-127)
- * @param handler   Handler function pointer
- * @param data      Driver-specific data (passed to handler)
- * @return 0 on success, -1 on error
- * 
- * CONTRACT:
- * - irq_num must be < MAX_IRQS
- * - handler must not be NULL
- * - IRQ must not already be registered
- * - Must be called before enabling IRQ in INTC
- */
+/* Returns -1 if irq_num >= MAX_IRQS, handler is NULL, or the slot
+ * is already taken. Must run before enabling the IRQ in INTC. */
 int irq_register_handler(uint32_t irq_num, irq_handler_t handler, void *data);
 
-/**
- * Unregister IRQ handler
- * @param irq_num   IRQ number (0-127)
- * 
- * CONTRACT:
- * - IRQ should be disabled in INTC before unregistering
- */
+/* Precondition: IRQ already disabled in INTC. */
 void irq_unregister_handler(uint32_t irq_num);
 
-/**
- * IRQ dispatcher (called from exception_entry_irq)
- * @param ctx Exception context pointer
- * 
- * CONTRACT:
- * - Queries INTC for active IRQ
- * - Validates IRQ number and handler
- * - Calls registered handler
- * - Sends EOI to INTC (ALWAYS, even for spurious/unhandled)
- */
+/* CRITICAL: always sends EOI — even for spurious/unhandled IRQs. */
 void irq_dispatch(void *ctx);
 
-/**
- * Get IRQ statistics
- * @param irq_num   IRQ number (0-127)
- * @return Number of times IRQ has been handled (0 if invalid)
- */
 uint32_t irq_get_count(uint32_t irq_num);
 
 #endif /* IRQ_H */

@@ -1,8 +1,7 @@
 /* ============================================================
  * vfs.c
  * ------------------------------------------------------------
- * Virtual File System — mount table with longest-prefix match,
- * per-task fd table, dispatch via fd->fs_ops.
+ * Virtual File System — mount table + per-task fd table.
  * ============================================================ */
 
 #include "vfs.h"

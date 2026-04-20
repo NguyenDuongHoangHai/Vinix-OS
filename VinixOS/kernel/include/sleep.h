@@ -16,7 +16,7 @@ extern volatile uint32_t jiffies;
 
 void msleep(uint32_t ms);
 
-/* Called from scheduler_tick() to wake expired sleepers. IRQ context. */
+/* IRQ context — wakes expired sleepers. */
 void sleep_tick(void);
 
 #endif

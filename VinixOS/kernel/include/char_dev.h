@@ -1,8 +1,7 @@
 /* ============================================================
  * char_dev.h
  * ------------------------------------------------------------
- * Minimal character-device registry. devfs dispatches VFS ops
- * to whichever char_device was registered under a given name.
+ * Minimal character-device registry (backing devfs).
  * ============================================================ */
 
 #ifndef CHAR_DEV_H

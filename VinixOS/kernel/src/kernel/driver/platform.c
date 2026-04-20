@@ -1,10 +1,7 @@
 /* ============================================================
  * platform.c
  * ------------------------------------------------------------
- * Platform bus — matches drv->name to pdev->name, stores
- * {base, irq} as struct resources so probes can use
- * platform_get_resource / platform_get_irq instead of hardcoded
- * macros.
+ * Platform bus — name-match drv↔pdev, resource lookup.
  * ============================================================ */
 
 #include "platform_device.h"

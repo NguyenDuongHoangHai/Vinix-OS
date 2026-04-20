@@ -17,10 +17,9 @@
 #include "syscalls.h"
 #include "string.h"
 
-/* The P1/P2 self-tests (page_alloc, slab, vmm, sync) already run
- * during their respective _init() calls and panic on failure.
- * This harness focuses on integration checks added in P5/P8 —
- * paths that have no other obvious smoke test. */
+/* Per-subsystem selftests run inside their _init() and panic on
+ * failure. This harness covers integration paths with no other
+ * obvious smoke test. */
 
 static int test_bcache_hit(void)
 {

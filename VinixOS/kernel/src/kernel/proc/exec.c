@@ -1,8 +1,7 @@
 /* ============================================================
  * exec.c
  * ------------------------------------------------------------
- * do_exec: replace current process image with an ELF32 ARM
- * executable loaded through VFS.
+ * ELF32 loader for do_exec().
  * ============================================================ */
 
 #include "proc.h"

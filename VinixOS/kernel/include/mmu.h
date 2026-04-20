@@ -1,18 +1,14 @@
 /* ============================================================
  * mmu.h
  * ------------------------------------------------------------
- * MMU definitions and interface — 3G/1G Virtual Memory Split
- *
- * Virtual Address Layout:
- *   User  Space: 0x00000000 – 0xBFFFFFFF (3GB)
- *   Kernel Space: 0xC0000000 – 0xFFFFFFFF (1GB)
- *
- * Physical DDR: 0x80000000 (128MB)
- *   → Mapped to VA 0xC0000000 (Kernel)
- *
- * Peripherals: identity mapped (PA == VA, below 0xC0000000)
- *   but access restricted to Kernel only (AP=01).
+ * MMU interface — 3G user / 1G kernel split.
  * ============================================================ */
+
+/* VA layout:
+ *   User    : 0x00000000 – 0xBFFFFFFF  (3GB)
+ *   Kernel  : 0xC0000000 – 0xFFFFFFFF  (1GB)
+ * DDR PA 0x80000000 (128MB) → kernel VA 0xC0000000.
+ * Peripherals identity-mapped (PA == VA), kernel-only (AP=01). */
 
 #ifndef MMU_H
 #define MMU_H

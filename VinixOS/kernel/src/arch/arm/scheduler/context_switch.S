@@ -1,12 +1,7 @@
 /* ============================================================
  * context_switch.S
  * ------------------------------------------------------------
- * Context switching implementation
- *
- * 
- * CRITICAL implementation based on:
- * - ARM Architecture Reference Manual ARMv7-A Part B (Exception Handling)
- * - docs/05_scheduler/03_context_switch_contract.md (corrected version)
+ * Context switch — see ARMv7-A ARM Part B (Exception Handling).
  * ============================================================ */
 
 .global context_switch

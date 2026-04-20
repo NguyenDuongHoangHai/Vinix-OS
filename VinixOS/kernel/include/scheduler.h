@@ -1,8 +1,7 @@
 /* ============================================================
  * scheduler.h
  * ------------------------------------------------------------
- * Simple round-robin preemptive scheduler for VinixOS
- * Target: BeagleBone Black (ARMv7-A)
+ * Round-robin preemptive scheduler interface.
  * ============================================================ */
 
 #ifndef SCHEDULER_H
@@ -22,65 +21,25 @@
  * Scheduler API
  * ============================================================ */
 
-/**
- * Initialize scheduler subsystem
- * Must be called before any other scheduler functions
- */
 void scheduler_init(void);
 
-/**
- * Add a task to the scheduler
- * 
- * @param task Pointer to initialized task structure
- * @return 0 on success, -1 if task table full
- */
+/* Returns -1 if the task table is full. */
 int scheduler_add_task(struct task_struct *task);
 
-/**
- * Terminate a task (Fault Handling)
- * 
- * @param id Task ID to terminate
- */
 void scheduler_terminate_task(uint32_t id);
 
-/**
- * Start the scheduler
- * 
- * This function does NOT return. It:
- * 1. Enables timer interrupts
- * 2. Loads first task context
- * 3. Jumps to first task
- * 
- * REQUIRES: At least one task added, IRQ enabled in CPSR
- */
+/* Precondition: at least one task added, IRQ enabled in CPSR. */
 void scheduler_start(void) __attribute__((noreturn));
 
-/**
- * Schedule next task (called from timer ISR)
- * 
- * Sets need_reschedule flag to signal tasks to yield.
- * Does NOT perform context switch (runs in IRQ mode).
- */
+/* IRQ context — sets need_reschedule, never context-switches. */
 void scheduler_tick(void);
 
-/**
- * Voluntary task yield
- * 
- * Called by tasks when they detect need_reschedule flag.
- * Performs actual context switch in SVC mode (safe).
- */
-/**
- * Get list of tasks
- * @return 0 on success, -1 on failure
- */
 int scheduler_get_tasks(void *buf, uint32_t max_count);
 
+/* Performs the actual context switch in SVC mode. */
 void scheduler_yield(void);
 
-/**
- * Get current running task
- * @return Pointer to current task, or NULL if scheduler not started
- */
+/* Returns NULL if the scheduler hasn't started. */
 struct task_struct *scheduler_current_task(void);
 
 /* Raw slot access for fork/wait; returns NULL on empty slot. */

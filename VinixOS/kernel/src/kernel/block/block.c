@@ -1,9 +1,11 @@
 /* ============================================================
  * block.c
  * ------------------------------------------------------------
- * Flat registry of block devices. Single consumer per device so
- * no locking today — add spinlock if concurrent mounts appear.
+ * Flat block-device registry.
  * ============================================================ */
+
+/* INVARIANT: single consumer per device — no locking. Add a
+ * spinlock if concurrent mounts ever appear. */
 
 #include "block.h"
 #include "string.h"

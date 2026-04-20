@@ -1,8 +1,7 @@
 /* ============================================================
  * wait.c
  * ------------------------------------------------------------
- * do_exit  — mark task ZOMBIE, wake parent.
- * do_wait  — block until any child zombies, reap it.
+ * do_exit / do_wait — process exit and parent reaping.
  * ============================================================ */
 
 #include "proc.h"

@@ -1,11 +1,7 @@
 /* ============================================================
  * mmc.c
  * ------------------------------------------------------------
- * MMC/SD Card Driver for AM335x MMC0
- *
- * Supports: raw sector read (CMD17) and write (CMD24) of 512B blocks.
- * Init sequence follows SD spec: clock enable, pinmux, reset, 400kHz
- * init clock → CMD0/CMD8/ACMD41/CMD2/CMD3/CMD7/CMD16 → 24MHz.
+ * AM335x MMC0 driver — 512B sector read (CMD17) / write (CMD24).
  * ============================================================ */
 
 #include "types.h"

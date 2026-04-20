@@ -1,8 +1,7 @@
 /* ============================================================
  * intc.h
  * ------------------------------------------------------------
- * AM335x INTC (Interrupt Controller) driver interface
- * Target: AM335x / BeagleBone Black
+ * AM335x INTC interrupt-controller driver interface.
  * ============================================================ */
 
 #ifndef INTC_H
@@ -55,69 +54,22 @@
  * INTC Driver API
  * ============================================================ */
 
-/**
- * Initialize INTC
- * - Masks all interrupts
- * - Disables threshold mechanism
- * - Enables NEWIRQAGR protocol
- * 
- * Must be called before any IRQ usage
- */
 void intc_init(void);
 
-/**
- * Get active IRQ number
- * @return IRQ number (0-127), or 128 if spurious
- * 
- * CONTRACT:
- * - Reads INTC_SIR_IRQ register
- * - Checks SPURIOUSIRQ flag
- * - Returns 128 for spurious IRQ
- */
+/* Returns 128 for a spurious IRQ. */
 uint32_t intc_get_active_irq(void);
 
-/**
- * End-of-Interrupt sequence
- * 
- * CONTRACT (CRITICAL):
- * - MUST be called after handling IRQ
- * - MUST be called for ALL IRQs (valid, spurious, unhandled)
- * - Without EOI, INTC will not de-assert IRQ line
- * 
- * Implementation:
- * - Writes NEWIRQAGR to INTC_CONTROL
- * - Executes Data Synchronization Barrier (DSB)
- */
+/* CRITICAL: must be called for EVERY IRQ — valid, spurious, or
+ * unhandled — otherwise INTC keeps the line asserted. */
 void intc_eoi(void);
 
-/**
- * Enable specific IRQ
- * @param irq_num IRQ number (0-127)
- * 
- * CONTRACT:
- * - Handler must be registered before enabling
- * - Clears mask bit in MIR_CLEAR register
- */
+/* Precondition: handler must be registered before enabling. */
 void intc_enable_irq(uint32_t irq_num);
 
-/**
- * Disable specific IRQ
- * @param irq_num IRQ number (0-127)
- * 
- * CONTRACT:
- * - Should be called before unregistering handler
- * - Sets mask bit in MIR_SET register
- */
 void intc_disable_irq(uint32_t irq_num);
 
-/**
- * Set IRQ priority (optional)
- * @param irq_num   IRQ number (0-127)
- * @param priority  Priority (0-63, lower = higher priority)
- * 
- * Note: Current implementation does not use priority
- * All IRQs default to priority 0
- */
+/* Lower priority value = higher priority (0–63). Currently unused —
+ * all IRQs run at priority 0. */
 void intc_set_priority(uint32_t irq_num, uint32_t priority);
 
 #endif /* INTC_H */

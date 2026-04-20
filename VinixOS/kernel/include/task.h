@@ -1,8 +1,7 @@
 /* ============================================================
  * task.h
  * ------------------------------------------------------------
- * Task structure and task management for VinixOS
- * Target: BeagleBone Black (ARMv7-A)
+ * Task struct and task-management interface.
  * ============================================================ */
 
 #ifndef TASK_H
@@ -15,28 +14,11 @@
  * Task Context Structure
  * ============================================================ */
 
-/**
- * Task CPU context - saved/restored during context switch
- * 
- * CRITICAL: Field order must EXACTLY match context_switch.S
- * assembly code. Any mismatch will cause register corruption.
- * 
- * Stack frame layout (low → high address):
- *   [SPSR] [LR] [r0-r12] ← SP
- *   Total: 60 bytes
- * 
- * Per ARM Architecture Manual Part B (Exception Handling):
- * - r0-r12: General purpose registers (shared across modes)
- * - SP: r13_svc (task's stack pointer in SVC mode)
- * - LR: r14_svc (task's link register in SVC mode)
- * - SPSR: Saved Program Status Register (task's CPSR snapshot)
- * 
- * NOTE: PC is NOT stored separately
- * - For interrupted tasks: PC is in LR_irq (handled by exception)
- * - For new tasks: Initial PC in stack frame (loaded by context restore)
- */
+/* CRITICAL: field order must exactly match context_switch.S —
+ * any mismatch corrupts registers.
+ * PC is NOT stored separately: interrupted tasks use LR_irq;
+ * new tasks load PC from their initial stack frame. */
 struct task_context {
-    /* General purpose registers (52 bytes) */
     uint32_t r0;
     uint32_t r1;
     uint32_t r2;
@@ -50,39 +32,26 @@ struct task_context {
     uint32_t r10;
     uint32_t r11;
     uint32_t r12;
-    
-    /* Mode-specific registers - SVC mode (8 bytes) */
-    uint32_t sp;      // r13_svc: Stack pointer
-    uint32_t lr;      // r14_svc: Link register (return address)
-    
-    /* Processor state (4 bytes) */
-    uint32_t spsr;    // Saved Program Status Register
-    
-    /* User Mode Stack Pointer (Added for Phase 7 Fix) */
-    uint32_t sp_usr;  // r13_usr
-    uint32_t lr_usr;  // r14_usr
-    
-    // Total size: 72 bytes (18 words)
+
+    uint32_t sp;      /* r13_svc */
+    uint32_t lr;      /* r14_svc */
+
+    uint32_t spsr;
+    uint32_t sp_usr;
+    uint32_t lr_usr;
 };
 
 /* ============================================================
  * Task Control Block
  * ============================================================ */
 
-/**
- * Task state values
- */
-#define TASK_STATE_READY    0   /* Ready to run */
-#define TASK_STATE_RUNNING  1   /* Currently executing */
-#define TASK_STATE_BLOCKED  2   /* Waiting for event (not used yet) */
-#define TASK_STATE_ZOMBIE   3   /* Task terminated/killed */
+#define TASK_STATE_READY    0
+#define TASK_STATE_RUNNING  1
+#define TASK_STATE_BLOCKED  2
+#define TASK_STATE_ZOMBIE   3
 
-/**
- * Task Control Block - complete task descriptor
- *
- * Fields up to `id` have frozen offsets: assembly (context_switch.S)
- * reads `context.sp` / `context.sp_usr`. New fields go AFTER `id`.
- */
+/* CRITICAL: fields up to `id` have frozen offsets — context_switch.S
+ * reads context.sp / context.sp_usr by offset. Add new fields AFTER id. */
 struct task_struct {
     struct task_context context;    /* Saved CPU state (72 bytes) */
     void *stack_base;               /* Pointer to stack bottom */
@@ -118,29 +87,12 @@ struct task_struct {
  * Task Stack Initialization
  * ============================================================ */
 
-/**
- * Initialize task stack for a new task
- * 
- * Creates initial stack frame so that when context_switch() loads
- * the task for the first time, it will:
- * - Start executing at entry_point
- * - Have initial CPSR in SVC mode with IRQ enabled
- * - Have clean register state
- * 
- * @param task        Pointer to task structure
- * @param entry_point Task entry point function
- * @param stack_base  Pointer to stack bottom (high address)
- * @param stack_size  Stack size in bytes
- * 
- * Stack layout after init (grows down from stack_base):
- *   [SPSR: SVC mode, IRQ enabled]
- *   [LR: entry_point]
- *   [r0-r12: all zeros]
- *   ← task->context.sp (points here)
- */
-void task_stack_init(struct task_struct *task, 
+/* Builds the first stack frame so the inaugural context_switch()
+ * resumes at entry_point with SPSR=SVC+IRQ-on and zeroed registers.
+ * `stack_base` is the high address; the stack grows downward. */
+void task_stack_init(struct task_struct *task,
                      void (*entry_point)(void),
-                     void *stack_base, 
+                     void *stack_base,
                      uint32_t stack_size);
 
 #endif /* TASK_H */

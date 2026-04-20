@@ -1,17 +1,7 @@
 /* ============================================================
  * mmu.c
  * ------------------------------------------------------------
- * MMU initialization — 3G/1G Virtual Memory Split
- *
- * Two-phase design:
- *   Phase A (boot, at PA): entry.S calls mmu_build_page_table_boot()
- *     and mmu_enable_and_jump(). These run at PA before MMU enable.
- *     After MMU enable + trampoline, execution continues at high VA.
- *
- *   Phase B (runtime, at VA): kernel_main() calls mmu_init() to
- *     remove the temporary identity mapping and update VBAR.
- *
- * Uses L1 section descriptors with 1MB granularity, no L2 tables.
+ * MMU init — 3G/1G split, L1 1MB sections, no L2 tables.
  * ============================================================ */
 
 #include "mmu.h"
@@ -205,24 +195,16 @@ void mmu_install_user_section(uint32_t *pgd_va, uint32_t user_va,
     __asm__ __volatile__("dsb\n\t" ::: "memory");
 }
 
-/* ============================================================
- * Phase A: Boot-time Page Table Builder
- * ============================================================
- * Called from entry.S at PA, BEFORE MMU enable.
- * Receives pgd physical address as argument (not the VA symbol).
- * Placed in .text.boot_entry so VMA == LMA == PA.
+/* CRITICAL: runs at PA before MMU enable — must live in
+ * .text.boot_entry (VMA == LMA == PA). Takes the pgd PA, not
+ * its VA symbol.
  *
- * Memory mapping:
- *   PA 0x80000000 → VA 0xC0000000 (1MB, User bootstrap) [permanent]
- *   PA 0x80100000 → VA 0xC0100000 (127MB, Kernel-only)  [permanent]
- *   PA 0x80000000 → VA 0x80000000 (128MB, identity)     [temporary]
- *   PA 0x44E00000 → VA 0x44E00000 (1MB, peripheral)     [permanent]
- *   PA 0x48000000 → VA 0x48000000 (3MB, peripheral)     [permanent]
- *
- * TRUE 3G/1G SPLIT:
- *   Kernel no longer shares 0xC0000000 with User tasks.
- *   User tasks receive their own dedicated mapping at 0x40000000.
- */
+ * Mapping installed:
+ *   PA 0x80000000 → VA 0xC0000000 (1MB, user bootstrap, perm)
+ *   PA 0x80100000 → VA 0xC0100000 (127MB, kernel-only, perm)
+ *   PA 0x80000000 → VA 0x80000000 (128MB, identity, temp)
+ *   PA 0x44E00000 → VA 0x44E00000 (1MB, peripheral, perm)
+ *   PA 0x48000000 → VA 0x48000000 (3MB, peripheral, perm) */
 void __attribute__((section(".text.boot_entry")))
 mmu_build_page_table_boot(uint32_t *pgd_pa)
 {

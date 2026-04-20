@@ -1,10 +1,7 @@
 /* ============================================================
  * buffer_cache.h
  * ------------------------------------------------------------
- * 64 × 512 B sector cache with LRU eviction + write-back.
- * Fs drivers hold a buffer_head through one logical operation
- * and release it with brelse — the cache writes dirty entries
- * back to the block device on eviction or bsync().
+ * 64 × 512B sector cache — LRU eviction, write-back on bsync().
  * ============================================================ */
 
 #ifndef BUFFER_CACHE_H

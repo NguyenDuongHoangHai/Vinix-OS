@@ -1,6 +1,7 @@
 /* ============================================================
  * clock.c
- * PLL and Clock Configuration for AM335x
+ * ------------------------------------------------------------
+ * AM335x PLL and peripheral-clock setup.
  * ============================================================ */
 
 #include "am335x.h"
@@ -48,17 +49,15 @@ static void config_ddr_pll(void)
         if (readl(CM_IDLEST_DPLL_DDR) & 0x00000100) break;
     }
 
-    /* Step 2: Program M and N dividers for 400 MHz output
-     * M = 400 (multiplier), N = 23 (divider) */
+    /* Step 2: Program M=400, N=23 for 400 MHz output. */
     clksel = readl(CM_CLKSEL_DPLL_DDR);
-    clksel &= ~0x7FFFF;           /* Clear bits [18:0] */
-    clksel |= (400 << 8) | 23;   /* M=400 at bits [18:8], N=23 at bits [6:0] */
+    clksel &= ~0x7FFFF;
+    clksel |= (400 << 8) | 23;   /* M @ [18:8], N @ [6:0] */
     writel(clksel, CM_CLKSEL_DPLL_DDR);
 
-    /* Step 3: Set M2 post-divider = 1
-     * Final output clock = 800MHz / 2 / 1 = 400 MHz */
+    /* Step 3: M2 post-divider = 1 → final 800/2/1 = 400 MHz. */
     div_m2 = readl(CM_DIV_M2_DPLL_DDR);
-    div_m2 = (div_m2 & ~0x1F) | 1;   /* Set bits [4:0] = 1 */
+    div_m2 = (div_m2 & ~0x1F) | 1;
     writel(div_m2, CM_DIV_M2_DPLL_DDR);
 
     /* Step 4: Lock PLL - switch from bypass to lock mode */
@@ -79,15 +78,12 @@ static void config_ddr_pll(void)
  * ============================================================ */
 static void enable_peripheral_clocks(void)
 {
-    /* Enable EMIF (DDR controller) clock */
     writel(MODULE_ENABLE, CM_PER_EMIF_CLKCTRL);
     while ((readl(CM_PER_EMIF_CLKCTRL) & 0x30000) != 0);
 
-    /* Enable MMC0 clock */
     writel(MODULE_ENABLE, CM_PER_MMC0_CLKCTRL);
     while ((readl(CM_PER_MMC0_CLKCTRL) & 0x30000) != 0);
-    
-    /* Enable UART0 clock explicitly */
+
     writel(MODULE_ENABLE, CM_WKUP_UART0_CLKCTRL);
     while ((readl(CM_WKUP_UART0_CLKCTRL) & 0x30000) != 0);
 }

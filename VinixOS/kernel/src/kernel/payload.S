@@ -1,12 +1,7 @@
 /* ============================================================
  * payload.S
  * ------------------------------------------------------------
- * Embeds the init program. Kernel copies it to USER_SPACE_VA
- * on boot and runs it as PID 1. The shell (and everything else)
- * lives on the FAT32 rootfs and is exec'd by init.
- *
- * Symbol names are kept as _shell_payload_* for source-compat
- * with the boot path that predates the init model.
+ * Embeds init — copied to USER_SPACE_VA and run as PID 1.
  * ============================================================ */
 
 .syntax unified

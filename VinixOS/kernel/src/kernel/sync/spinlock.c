@@ -1,8 +1,7 @@
 /* ============================================================
  * spinlock.c
  * ------------------------------------------------------------
- * Uniprocessor spinlock: IRQ-disable guarantees exclusivity on
- * a single core. SMP port will swap in LDREX/STREX.
+ * Uniprocessor spinlock — IRQ-disable for exclusivity.
  * ============================================================ */
 
 #include "spinlock.h"

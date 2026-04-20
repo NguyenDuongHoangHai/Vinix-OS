@@ -1,8 +1,7 @@
 /* ============================================================
  * wait_queue.c
  * ------------------------------------------------------------
- * wake_up(): pop one waiter, mark READY. Uniprocessor: IRQ-disable
- * alone serializes against wake_up() from IRQ context.
+ * Wait queue — pop-one-waiter wake_up, IRQ-disable serialized.
  * ============================================================ */
 
 #include "wait_queue.h"

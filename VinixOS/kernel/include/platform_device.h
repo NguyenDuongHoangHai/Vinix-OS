@@ -1,10 +1,7 @@
 /* ============================================================
  * platform_device.h
  * ------------------------------------------------------------
- * platform bus — memory-mapped, non-discoverable peripherals.
- * Each platform_device carries a base address, IRQ number and
- * clock id; each platform_driver probes by matching drv->name
- * against pdev->name.
+ * Platform bus — non-discoverable memory-mapped peripherals.
  * ============================================================ */
 
 #ifndef PLATFORM_DEVICE_H

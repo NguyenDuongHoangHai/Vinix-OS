@@ -1,9 +1,7 @@
 /* ============================================================
  * block.h
  * ------------------------------------------------------------
- * Block-device abstraction. MMC, future USB-storage, any sector
- * target registers here; filesystems talk bread()/bwrite()
- * instead of driver-specific sector calls.
+ * Block-device abstraction — bread()/bwrite() over sector targets.
  * ============================================================ */
 
 #ifndef BLOCK_H

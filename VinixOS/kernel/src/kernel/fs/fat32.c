@@ -1,19 +1,12 @@
 /* ============================================================
  * fat32.c
  * ------------------------------------------------------------
- * FAT32 Filesystem Driver
- *
- * Implements vfs_operations for VFS layer. Supports:
- *   - 8.3 shortname only (no LFN), case preserved via NTRes byte
- *   - Root directory only (no subdirectories)
- *   - Up to FAT32_MAX_FILES files in root
- *   - Cluster chain traversal for multi-cluster read/write
- *
- * INVARIANT: all sector I/O goes through the buffer cache. The
- * static sector_buf is only used for scratch during BPB parse
- * and initial root-dir scan — before any concurrent reader
- * could exist.
+ * FAT32 filesystem driver — 8.3 names, root dir only.
  * ============================================================ */
+
+/* INVARIANT: all sector I/O goes through the buffer cache.
+ * sector_buf is scratch for BPB + initial root-dir scan only,
+ * before any concurrent reader can exist. */
 
 #include "types.h"
 #include "fat32.h"

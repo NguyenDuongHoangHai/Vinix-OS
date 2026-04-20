@@ -1,10 +1,11 @@
 /* ============================================================
  * svc_context.h
  * ------------------------------------------------------------
- * Shared SVC exception frame layout. Fields mirror the stack
- * order pushed by exception_entry_svc in exception_entry.S —
- * keep in sync.
+ * SVC exception frame layout.
  * ============================================================ */
+
+/* CRITICAL: field order must mirror exception_entry_svc in
+ * exception_entry.S — keep in sync. */
 
 #ifndef SVC_CONTEXT_H
 #define SVC_CONTEXT_H

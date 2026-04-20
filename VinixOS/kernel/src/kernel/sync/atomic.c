@@ -1,8 +1,7 @@
 /* ============================================================
  * atomic.c
  * ------------------------------------------------------------
- * Uniprocessor atomics via IRQ-disable. SMP port will swap in
- * LDREX/STREX without changing the API.
+ * Uniprocessor atomics via IRQ-disable.
  * ============================================================ */
 
 #include "atomic.h"

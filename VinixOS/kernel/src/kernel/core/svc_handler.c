@@ -1,8 +1,7 @@
 /* ============================================================
  * svc_handler.c
  * ------------------------------------------------------------
- * Supervisor Call (SVC) Exception Handler
- * Implements the system call dispatcher and user/kernel boundary
+ * SVC exception handler — system call dispatcher.
  * ============================================================ */
 
 #include "types.h"
@@ -397,14 +396,6 @@ void svc_handler(struct svc_context *ctx)
 
     static uint32_t svc_call_count = 0;
     svc_call_count++;
-
-    /* DEBUG: Print every 5000 SVC calls */
-    // if (svc_call_count % 5000 == 0) {
-    //     uart_printf("[SVC] Call #%u: syscall=%u (YIELD=%u, READ=%u)\n",
-    //                 svc_call_count, syscall_num, SYS_YIELD, SYS_READ);
-    // }
-
-    // TRACE_SCHED("SVC Entry: ID=%d, Args=0x%x, 0x%x", syscall_num, ctx->r0, ctx->r1);
 
     switch (syscall_num)
     {

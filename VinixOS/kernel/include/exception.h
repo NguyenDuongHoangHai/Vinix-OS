@@ -1,8 +1,7 @@
 /* ============================================================
  * exception.h
  * ------------------------------------------------------------
- * Exception handling interface
- * Target: ARM Cortex-A8 (ARMv7-A)
+ * ARMv7-A exception handling interface.
  * ============================================================ */
 
 #ifndef EXCEPTION_H
@@ -10,26 +9,11 @@
 
 #include "types.h"
 
-/* ============================================================
- * Exception Context Structure
- * ------------------------------------------------------------
- * Saved by exception entry stubs (assembly)
- * Passed to C exception handlers
- * ============================================================ */
-
-/**
- * Exception context frame
- * 
- * Layout matches the order pushed by exception_entry stubs:
- * 1. r0-r12, LR (saved by STMFD first - CRITICAL!)
- * 2. SPSR (saved last)
- * 
- * Stack grows downward, so SPSR is at lowest address (SP points here)
- * 
- * Total size: 15 words (60 bytes)
- */
+/* CRITICAL: layout matches exception_entry stubs — STMFD pushes
+ * r0-r12,LR first, then SPSR last. SPSR ends up at the lowest
+ * address (SP points here). */
 struct exception_context {
-    uint32_t spsr;      /* Saved Program Status Register (at SP) */
+    uint32_t spsr;
     uint32_t r0;
     uint32_t r1;
     uint32_t r2;
@@ -43,68 +27,18 @@ struct exception_context {
     uint32_t r10;
     uint32_t r11;
     uint32_t r12;
-    uint32_t lr;        /* Return address (adjusted by entry stub) */
+    uint32_t lr;
 };
 
 /* ============================================================
- * Exception Handler Prototypes
- * ------------------------------------------------------------
- * Called from exception entry stubs
- * Must NOT return (fatal exceptions)
+ * Exception Handler Prototypes — must NOT return (fatal).
  * ============================================================ */
 
-/**
- * Undefined Instruction Exception Handler
- * @param ctx Pointer to exception context on stack
- * 
- * Called when CPU encounters invalid/unsupported instruction
- * This is a FATAL exception - kernel will halt
- */
 void handle_undefined_instruction(struct exception_context *ctx);
-
-/**
- * Supervisor Call (SVC) Exception Handler
- * @param ctx Pointer to exception context on stack
- * 
- * Called when SVC instruction is executed
- * Not used in current phase (no syscalls)
- */
 void handle_svc(struct exception_context *ctx);
-
-/**
- * Prefetch Abort Exception Handler
- * @param ctx Pointer to exception context on stack
- * 
- * Called when instruction fetch fails (bad address, MMU fault, etc)
- * This is a FATAL exception - kernel will halt
- */
 void handle_prefetch_abort(struct exception_context *ctx);
-
-/**
- * Data Abort Exception Handler
- * @param ctx Pointer to exception context on stack
- * 
- * Called when data access fails (bad address, MMU fault, alignment, etc)
- * This is a FATAL exception - kernel will halt
- */
 void handle_data_abort(struct exception_context *ctx);
-
-/**
- * IRQ Exception Handler (stub)
- * @param ctx Pointer to exception context on stack
- * 
- * Called when hardware interrupt occurs
- * Not implemented in current phase (IRQ masked)
- */
 void handle_irq(struct exception_context *ctx);
-
-/**
- * FIQ Exception Handler (stub)
- * @param ctx Pointer to exception context on stack
- * 
- * Called when fast interrupt occurs
- * Not used in current phase (FIQ always masked)
- */
 void handle_fiq(struct exception_context *ctx);
 
 #endif /* EXCEPTION_H */

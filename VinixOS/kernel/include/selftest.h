@@ -13,8 +13,7 @@ struct selftest {
     selftest_fn run;
 };
 
-/* Walk the registered tests, log pass/fail for each, panic on first
- * failure. Called from main.c after all subsystems are up. */
+/* Run registered tests, log pass/fail, panic on first failure. */
 void selftest_run_all(void);
 
 #endif

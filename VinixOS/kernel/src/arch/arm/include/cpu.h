@@ -29,51 +29,34 @@
  * IRQ Control Functions
  * ============================================================ */
 
-/**
- * Enable IRQ (clear I bit in CPSR)
- * 
- * CONTRACT:
- * - Must be called AFTER intc_init() and irq_init()
- * - Must have at least one handler registered (or accept spurious IRQ)
- */
+/* Precondition: intc_init() + irq_init() done, with at least one
+ * handler registered (or willing to absorb spurious IRQs). */
 static inline void irq_enable(void)
 {
     uint32_t cpsr;
     asm volatile(
-        "mrs %0, cpsr\n"           /* Read CPSR */
-        "bic %0, %0, %1\n"         /* Clear I bit */
-        "msr cpsr_c, %0"           /* Write back CPSR control field */
+        "mrs %0, cpsr\n"
+        "bic %0, %0, %1\n"
+        "msr cpsr_c, %0"
         : "=r"(cpsr)
         : "I"(CPSR_IRQ_BIT)
         : "memory"
     );
 }
 
-/**
- * Disable IRQ (set I bit in CPSR)
- * 
- * CONTRACT:
- * - Can be called at any time
- * - Prevents CPU from responding to IRQ line
- * - INTC may still assert IRQ, but CPU will ignore
- */
 static inline void irq_disable(void)
 {
     uint32_t cpsr;
     asm volatile(
-        "mrs %0, cpsr\n"           /* Read CPSR */
-        "orr %0, %0, %1\n"         /* Set I bit */
-        "msr cpsr_c, %0"           /* Write back CPSR control field */
+        "mrs %0, cpsr\n"
+        "orr %0, %0, %1\n"
+        "msr cpsr_c, %0"
         : "=r"(cpsr)
         : "I"(CPSR_IRQ_BIT)
         : "memory"
     );
 }
 
-/**
- * Check if IRQ is enabled
- * @return 1 if enabled (I bit clear), 0 if disabled (I bit set)
- */
 static inline int irq_is_enabled(void)
 {
     uint32_t cpsr;
@@ -81,15 +64,7 @@ static inline int irq_is_enabled(void)
     return !(cpsr & CPSR_IRQ_BIT);
 }
 
-/**
- * Save IRQ state and disable IRQ
- * @return Previous CPSR value (for restore)
- * 
- * Usage:
- *   uint32_t flags = irq_save();
- *   // ... critical section ...
- *   irq_restore(flags);
- */
+/* Returns prior CPSR — feed it back into irq_restore(). */
 static inline uint32_t irq_save(void)
 {
     uint32_t cpsr, new_cpsr;
@@ -104,10 +79,6 @@ static inline uint32_t irq_save(void)
     return cpsr;
 }
 
-/**
- * Restore IRQ state
- * @param flags Previous CPSR value from irq_save()
- */
 static inline void irq_restore(uint32_t flags)
 {
     asm volatile("msr cpsr_c, %0" : : "r"(flags) : "memory");
@@ -117,49 +88,21 @@ static inline void irq_restore(uint32_t flags)
  * Memory Barrier Functions
  * ============================================================ */
 
-/**
- * Data Synchronization Barrier
- * 
- * Ensures all explicit memory accesses before this instruction
- * complete before any explicit memory accesses after it
- */
 static inline void dsb(void)
 {
     asm volatile("mcr p15, 0, %0, c7, c10, 4" : : "r"(0) : "memory");
 }
 
-/**
- * Data Memory Barrier
- * 
- * Ensures all explicit memory accesses before this instruction
- * are observed before any explicit memory accesses after it
- */
 static inline void dmb(void)
 {
     asm volatile("mcr p15, 0, %0, c7, c10, 5" : : "r"(0) : "memory");
 }
 
-/**
- * Instruction Synchronization Barrier
- * 
- * Flushes the pipeline and ensures all instructions before
- * this instruction complete before fetching any instructions after it
- */
 static inline void isb(void)
 {
     asm volatile("mcr p15, 0, %0, c7, c5, 4" : : "r"(0) : "memory");
 }
 
-/* ============================================================
- * Wait for Interrupt
- * ============================================================ */
-
-/**
- * Wait for Interrupt
- * 
- * Puts the CPU into low-power state until an interrupt occurs
- * Useful in idle loop to save power
- */
 static inline void wfi(void)
 {
     asm volatile("wfi" : : : "memory");
