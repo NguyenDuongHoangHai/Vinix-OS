@@ -53,6 +53,7 @@
  * AM335x TRM Ch.14
  * ============================================================ */
 #define CPSW_SS_BASE                0x4A100000u
+#define SS_CONTROL                 (CPSW_SS_BASE + 0x004u)
 #define SS_SOFT_RESET              (CPSW_SS_BASE + 0x008u)
 #define SS_STAT_PORT_EN            (CPSW_SS_BASE + 0x00Cu)
 #define SS_SOFT_RESET_BIT          (1u << 0)
@@ -226,6 +227,20 @@ static int cpsw_ss_reset(void)
         uart_printf("[CPSW] SS reset timeout\n");
         return -1;
     }
+    /* ----------------------------------------------------------
+     * [FIX] SS_CONTROL — enable CPSW subsystem
+     * ----------------------------------------------------------
+     * Vấn đề: DMASTATUS chuyển từ 0x80000000 → 0x200000 sau
+     *   TX kick nhưng TX BD không được process (TX_CP=0x0).
+     * Nguyên nhân: SS_CONTROL register chưa được set sau reset.
+     *   Theo TRM Ch.14 §14.3.1, SS_CONTROL bit 0 (VLAN_AWARE)
+     *   và việc enable subsystem phải được thực hiện sau soft
+     *   reset trước khi CPDMA có thể hoạt động.
+     * Fix: ghi SS_CONTROL = 0 (non-VLAN mode) để confirm
+     *   subsystem đã sẵn sàng, sau đó mới enable stat ports.
+     * ---------------------------------------------------------- */
+    mmio_write32(SS_CONTROL, 0);
+    /* ---------------------------------------------------------- */
     mmio_write32(SS_STAT_PORT_EN, SS_STAT_PORT_EN_P0 | SS_STAT_PORT_EN_P1);
     uart_printf("[CPSW] SS reset done\n");
     return 0;
@@ -272,6 +287,9 @@ static int cpsw_cpdma_init(void)
                 mmio_read32(CPDMA_TX_CONTROL),
                 mmio_read32(CPDMA_RX_CONTROL),
                 mmio_read32(CPDMA_DMASTATUS));
+    uart_printf("[CPSW] WR_C0_TX_EN=0x%08x  WR_C0_RX_EN=0x%08x\n",
+                mmio_read32(CPSW_WR_C0_TX_EN),
+                mmio_read32(CPSW_WR_C0_RX_EN));
     uart_printf("[CPSW] CPDMA init done\n");
     return 0;
 }
