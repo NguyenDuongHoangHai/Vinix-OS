@@ -492,6 +492,20 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
+    static uint32_t last_diag_tick = 0;
+    extern uint32_t timer_get_ticks(void);
+
+    /* Diagnostic: dump RX state every 2s to track CPDMA behavior */
+    uint32_t now = timer_get_ticks();
+    if ((now - last_diag_tick) >= 200) {
+        uart_printf("[CPSW] RX diag: HDP=0x%08x  BD_FLAGS=0x%08x  DMASTATUS=0x%08x  RX_CP=0x%08x\n",
+                    mmio_read32(STATERAM_RX0_HDP),
+                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
+                    mmio_read32(CPDMA_DMASTATUS),
+                    mmio_read32(STATERAM_RX0_CP));
+        last_diag_tick = now;
+    }
+
     /* Check BD_FLAGS directly — if OWNER=1 DMA still holds the BD */
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
