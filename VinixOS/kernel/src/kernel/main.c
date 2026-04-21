@@ -96,7 +96,7 @@ void kernel_main(void)
 #endif
     cpsw_init();
     /* Board IP — change to match your LAN (e.g. 192.168.1.100) */
-    netcore_init(NETCORE_IP4(192, 168, 1, 100));
+    netcore_init(NETCORE_IP4(10, 0, 0, 100));
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
