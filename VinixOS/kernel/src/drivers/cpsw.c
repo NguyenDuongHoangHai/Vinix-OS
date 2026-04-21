@@ -126,6 +126,7 @@
 #define SL1_SOFT_RESET             (CPSW_SL1_BASE + 0x00Cu)
 #define SL1_RX_MAXLEN              (CPSW_SL1_BASE + 0x010u)
 #define MAC_FULLDUPLEX             (1u << 0)
+#define MAC_LOOPBACK               (1u << 1) /* TX→RX inside MAC, bypass MII pins */
 #define MAC_GMII_EN                (1u << 5)
 #define SL1_SOFT_RESET_BIT         (1u << 0)
 
@@ -280,6 +281,63 @@ static void cpsw_bd_init(void)
 }
 
 /* ============================================================
+ * MAC loopback self-test — connects TX directly to RX inside
+ * the MAC Sliver, bypassing MII pins and PHY entirely.
+ * PASS → internal CPSW→CPDMA path works; external MII issue.
+ * FAIL → CPDMA or CPSW internal path broken.
+ * ============================================================ */
+static void cpsw_loopback_selftest(void)
+{
+    static const uint8_t test_pkt[64] = {
+        /* dst: broadcast — ALE bypass forwards to host port 0 */
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        /* src: our MAC */
+        0xde, 0xad, 0xbe, 0xef, 0x00, 0x01,
+        /* ethertype: 0x9000 (loopback test, unused by netcore) */
+        0x90, 0x00,
+        /* payload: zeros (pad to 64 bytes minimum) */
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+    };
+    int i;
+
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN | MAC_LOOPBACK);
+
+    /* Re-arm RX BD for the loopback frame */
+    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+    cpsw_tx(test_pkt, 64);
+
+    for (i = 0; i < 100000; i = i + 1) {
+        uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+        if (!(flags & BD_OWNER)) {
+            uart_printf("[CPSW] Loopback PASS — CPDMA path OK, len=%d\n",
+                        (int)(flags & 0xFFFFu));
+            /* Ack completed BD, re-arm for normal operation */
+            mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+            mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+            mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+            mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+            mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                         BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+            mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+            goto done;
+        }
+    }
+    uart_printf("[CPSW] Loopback FAIL — CPDMA/CPSW internal path broken\n");
+
+done:
+    /* Restore normal mode — no loopback */
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN);
+}
+
+/* ============================================================
  * Public functions
  * ============================================================ */
 
@@ -293,6 +351,7 @@ int cpsw_init(void)
     if (cpsw_mac_init()      != 0) return -1;
     cpsw_ale_init();
     cpsw_bd_init();
+    cpsw_loopback_selftest();
 
     /* Diagnostic: verify key register state after full init */
     uart_printf("[CPSW] MACCTRL=0x%08x  ALE_CTRL=0x%08x\n",
