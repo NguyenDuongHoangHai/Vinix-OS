@@ -8,6 +8,7 @@
 #include "task.h"
 #include "scheduler.h"
 #include "types.h"
+#include "cpsw.h"
 
 /* Idle task stack (4KB) */
 #define IDLE_STACK_SIZE 4096
@@ -41,6 +42,10 @@ static void idle_task(void)
         /* WFI: sleep until next IRQ if yield didn't switch — keeps
          * idle from burning CPU when nothing else is READY. */
         __asm__ volatile("wfi");
+
+        /* Poll for incoming Ethernet frames after every IRQ wakeup.
+         * Drives netcore_rx() → ARP/IP/ICMP/UDP dispatch. */
+        cpsw_rx_poll();
     }
 }
 
