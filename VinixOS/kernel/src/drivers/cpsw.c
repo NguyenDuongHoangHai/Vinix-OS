@@ -9,6 +9,8 @@
 #include "mmio.h"
 #include "uart.h"
 
+extern uint32_t timer_get_ticks(void);
+
 /* ============================================================
  * PRCM — Clock Verify
  * mdio_init() owns clock enable. cpsw_init() only verifies
@@ -338,8 +340,32 @@ static void cpsw_bd_init(void)
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
+    /* ----------------------------------------------------------
+     * [FIX] DSB trước khi kick HDP — memory ordering
+     * ----------------------------------------------------------
+     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR code=1: no ownership)
+     *   ngay từ poll đầu tiên — trước khi có bất kỳ frame nào.
+     * Nguyên nhân: ARMv7-A store buffer — CPU ghi BD_FLAGS vào
+     *   CPPI_RAM nhưng store chưa committed ra bus khi CPU ghi
+     *   STATERAM_RX0_HDP. CPDMA đọc BD ngay sau khi thấy HDP,
+     *   thấy OWNER=0 (stale) → báo RX_HOST_ERR.
+     * Fix: DSB (Data Synchronization Barrier) đảm bảo tất cả
+     *   store trước đó committed ra memory trước khi ghi HDP.
+     * ---------------------------------------------------------- */
+    __asm__ volatile ("dsb" ::: "memory");
+    /* ---------------------------------------------------------- */
+
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+    /* Diagnostic: verify BD was written correctly to CPPI_RAM */
     uart_printf("[CPSW] BD init done, RX armed\n");
+    uart_printf("[CPSW] RX BD verify: NEXT=0x%08x BUFPTR=0x%08x BUFLEN=0x%08x FLAGS=0x%08x\n",
+                mmio_read32(RX_BD_PA + BD_OFF_NEXT),
+                mmio_read32(RX_BD_PA + BD_OFF_BUFPTR),
+                mmio_read32(RX_BD_PA + BD_OFF_BUFLEN),
+                mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
+    uart_printf("[CPSW] DMASTATUS after HDP kick=0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS));
 }
 
 /* ============================================================
@@ -457,15 +483,7 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
-    static uint32_t poll_count = 0;
-    poll_count = poll_count + 1;
-    if (poll_count % 500 == 0)
-        uart_printf("[CPSW] poll #%u  RX0_HDP=0x%08x  BD_FLAGS=0x%08x  DMASTATUS=0x%08x  MACCTRL=0x%08x\n",
-                    poll_count,
-                    mmio_read32(STATERAM_RX0_HDP),
-                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
-                    mmio_read32(CPDMA_DMASTATUS),
-                    mmio_read32(SL1_MACCONTROL));
+    static uint32_t last_log_tick = 0;
 
     /* ----------------------------------------------------------
      * [FIX] CPDMA RX_HOST_ERR recovery
@@ -475,17 +493,23 @@ void cpsw_rx_poll(void)
      * Nguyên nhân: ghi RX0_CP không đúng lúc trong selftest
      *   (đã fix) trigger error state. Recovery: ack CP + re-arm.
      * Fix: mỗi lần poll, nếu detect error thì recover và return.
-     *   Không dùng static flag — error có thể xảy ra nhiều lần
-     *   nếu có race condition, cần recover mỗi lần.
      * ---------------------------------------------------------- */
     uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
     if (dmastat & DMASTATUS_RX_HOST_ERR) {
+        /* Log tối đa 1 lần mỗi 2 giây (200 ticks × 10ms) */
+        uint32_t now = timer_get_ticks();
+        if ((now - last_log_tick) >= 200) {
+            uart_printf("[CPSW] RX_HOST_ERR  DMASTATUS=0x%08x  BD_FLAGS=0x%08x\n",
+                        dmastat, mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
+            last_log_tick = now;
+        }
         mmio_write32(STATERAM_RX0_CP,  RX_BD_PA);
         mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
         mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
         mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
         mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                      BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+        __asm__ volatile ("dsb" ::: "memory");
         mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
         return;
     }
@@ -504,11 +528,12 @@ void cpsw_rx_poll(void)
     /* Ack completed BD to CPDMA */
     mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
 
-    /* Re-arm RX BD and restart DMA — single BD model: always restart */
+    /* Re-arm RX BD and restart DMA */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+    __asm__ volatile ("dsb" ::: "memory");
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 }

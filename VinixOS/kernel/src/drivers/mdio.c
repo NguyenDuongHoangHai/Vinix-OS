@@ -124,6 +124,28 @@ int mdio_init(void)
 
     mmio_write32(MDIO_CONTROL, MDIO_CTRL_ENABLE | MDIO_CTRL_CLKDIV);
 
+    /* ----------------------------------------------------------
+     * [FIX] Poll MDIO_ALIVE sau khi enable controller
+     * ----------------------------------------------------------
+     * Vấn đề: ALIVE=0x0 ngay sau khi ghi MDIO_CONTROL — CPSW
+     *   init chạy tiếp với PHY chưa được detect → MAC không
+     *   nhận frame từ wire → CPDMA idle mãi → ping fail.
+     * Nguyên nhân: MDIO controller cần ít nhất 1 scan cycle
+     *   (~2ms ở CLKDIV=49, MDC=2.5MHz) để scan 32 PHY addr
+     *   và cập nhật ALIVE register. Đọc ALIVE ngay sau enable
+     *   luôn trả về 0.
+     * Fix: poll ALIVE cho đến khi có ít nhất 1 PHY detected,
+     *   hoặc timeout sau ~200ms.
+     * ---------------------------------------------------------- */
+    n = 100000;
+    while (mmio_read32(MDIO_ALIVE) == 0) {
+        if (--n == 0) {
+            uart_printf("[MDIO] ALIVE timeout — no PHY detected\n");
+            break;
+        }
+    }
+    /* ---------------------------------------------------------- */
+
     uart_printf("[MDIO] init OK, ALIVE=0x%08x\n", mmio_read32(MDIO_ALIVE));
     return E_OK;
 }
