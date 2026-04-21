@@ -347,6 +347,7 @@ void cpsw_rx_poll(void)
 
     uint16_t len = (uint16_t)(flags & 0xFFFFu);
 
+    uart_printf("[CPSW] RX frame len=%d\n", len);
     if (s_rx_cb && len > 0)
         s_rx_cb((const uint8_t *)RX_BUF_PA, len);
 
