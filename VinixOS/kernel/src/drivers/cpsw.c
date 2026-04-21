@@ -178,7 +178,8 @@ static void cpsw_pinmux_init(void)
     mmio_write32(CONF_MII1_TXD2,   PIN_TX);
     mmio_write32(CONF_MII1_TXD1,   PIN_TX);
     mmio_write32(CONF_MII1_TXD0,   PIN_TX);
-    mmio_write32(CONF_MII1_TX_CLK, PIN_TX);
+    /* TX_CLK in MII mode is driven BY the PHY — must be input */
+    mmio_write32(CONF_MII1_TX_CLK, PIN_RX);
     mmio_write32(CONF_MII1_RX_DV,  PIN_RX);
     mmio_write32(CONF_MII1_RX_ER,  PIN_RX);
     mmio_write32(CONF_MII1_RXD3,   PIN_RX);
@@ -341,6 +342,11 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
+    static uint32_t poll_count = 0;
+    poll_count = poll_count + 1;
+    if (poll_count % 500 == 0)
+        uart_printf("[CPSW] poll #%d\n", poll_count);
+
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
         return;  /* DMA hasn't filled this BD yet */
