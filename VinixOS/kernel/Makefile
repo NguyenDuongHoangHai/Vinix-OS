@@ -42,6 +42,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
 C_OBJ += $(BUILD_DIR)/mdio.o
+C_OBJ += $(BUILD_DIR)/cpsw.o
 
 # Flags
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
@@ -162,6 +163,9 @@ $(BUILD_DIR)/mdio.o: $(SRC)/drivers/mdio.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/mdio_test.o: $(TESTCASE_L1)/mdio_test.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/cpsw.o: $(SRC)/drivers/cpsw.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 # end Hai Nguyen
 # ==================================================

@@ -39,8 +39,9 @@ extern void sync_selftest(void);
 #include "boot_screen.h"
 
 /* ================================================== */
-/* Hai Nguyen: add MDIO/PHY driver (Layer 1)          */
+/* Hai Nguyen: add MDIO/PHY + CPSW Ethernet driver    */
 #include "mdio.h"
+#include "cpsw.h"
 #ifdef ENABLE_LAYER1_TEST
 #include "mdio_test.h"
 #endif
@@ -87,11 +88,12 @@ void kernel_main(void)
     mmu_init();
 
     /* ================================================== */
-    /* Hai Nguyen: init MDIO/PHY driver (Layer 1)        */
+    /* Hai Nguyen: init MDIO/PHY + CPSW Ethernet         */
     mdio_init();
 #ifdef ENABLE_LAYER1_TEST
     mdio_layer1_test();
 #endif
+    cpsw_init();
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
