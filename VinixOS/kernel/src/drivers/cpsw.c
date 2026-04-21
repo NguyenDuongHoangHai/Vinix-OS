@@ -288,6 +288,20 @@ static int cpsw_cpdma_init(void)
 
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+
+    /* ----------------------------------------------------------
+     * [FIX] RX_BUFFER_OFFSET phải = 0
+     * ----------------------------------------------------------
+     * Vấn đề: CPDMA nhận frame từ PHY nhưng không clear OWNER
+     *   bit trong RX BD → CPU không thấy frame nào.
+     * Nguyên nhân: CPDMA_RX_BUFFER_OFFSET (offset 0x028) có thể
+     *   có giá trị stale từ bootloader. Nếu != 0, CPDMA thêm
+     *   padding vào đầu buffer → BD length accounting sai →
+     *   frame bị drop silently.
+     * Fix: explicit set = 0 sau khi enable RX channel.
+     * ---------------------------------------------------------- */
+    mmio_write32(CPDMA_RX_BUFFER_OFFSET, 0);
+    /* ---------------------------------------------------------- */
     uart_printf("[CPSW] CPDMA TX_CTRL=0x%08x  RX_CTRL=0x%08x  DMASTATUS=0x%08x\n",
                 mmio_read32(CPDMA_TX_CONTROL),
                 mmio_read32(CPDMA_RX_CONTROL),
