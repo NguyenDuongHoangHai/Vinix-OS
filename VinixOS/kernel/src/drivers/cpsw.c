@@ -253,6 +253,21 @@ static int cpsw_ss_reset(void)
 
 static int cpsw_cpdma_init(void)
 {
+    /* ----------------------------------------------------------
+     * [FIX] Reset CPSW_WR trước CPDMA reset
+     * ----------------------------------------------------------
+     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR) xuất hiện ngay
+     *   sau scheduler start dù init đúng hoàn toàn.
+     * Nguyên nhân: CPSW_WR wrapper có thể giữ stale interrupt
+     *   state từ bootloader. CPDMA_SOFT_RESET không clear
+     *   CPSW_WR state → error tái xuất hiện khi MAC nhận
+     *   frame đầu tiên từ wire.
+     * Fix: reset CPSW_WR trước khi reset CPDMA.
+     * ---------------------------------------------------------- */
+    mmio_write32(CPSW_WR_SOFT_RESET, 1u);
+    wait_bit_clear(CPSW_WR_SOFT_RESET, 1u, RESET_TIMEOUT);
+    /* ---------------------------------------------------------- */
+
     mmio_write32(CPDMA_SOFT_RESET, CPDMA_SOFT_RESET_BIT);
     if (wait_bit_clear(CPDMA_SOFT_RESET, CPDMA_SOFT_RESET_BIT, RESET_TIMEOUT) != 0) {
         uart_printf("[CPSW] CPDMA reset timeout\n");
