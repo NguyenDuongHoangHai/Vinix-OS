@@ -341,18 +341,18 @@ static void cpsw_bd_init(void)
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
     /* ----------------------------------------------------------
-     * [FIX] DSB trước khi kick HDP — memory ordering
+     * [FIX] DMB trước khi kick HDP — DMA coherency
      * ----------------------------------------------------------
-     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR code=1: no ownership)
-     *   ngay từ poll đầu tiên — trước khi có bất kỳ frame nào.
-     * Nguyên nhân: ARMv7-A store buffer — CPU ghi BD_FLAGS vào
-     *   CPPI_RAM nhưng store chưa committed ra bus khi CPU ghi
-     *   STATERAM_RX0_HDP. CPDMA đọc BD ngay sau khi thấy HDP,
-     *   thấy OWNER=0 (stale) → báo RX_HOST_ERR.
-     * Fix: DSB (Data Synchronization Barrier) đảm bảo tất cả
-     *   store trước đó committed ra memory trước khi ghi HDP.
+     * Vấn đề: DMASTATUS=0x80000000 ngay sau HDP kick (đúng),
+     *   nhưng sau scheduler start → DMASTATUS=0x2000 (RX_HOST_ERR).
+     * Nguyên nhân: DSB đảm bảo CPU store committed nhưng không
+     *   đảm bảo DMA engine thấy giá trị mới. DMB (Data Memory
+     *   Barrier) đảm bảo memory ordering cho cả DMA access.
+     *   CPPI_RAM là Strongly Ordered — không cache, nhưng write
+     *   buffer vẫn có thể delay store đến DMA bus.
+     * Fix: dùng DMB thay vì DSB trước khi ghi HDP.
      * ---------------------------------------------------------- */
-    __asm__ volatile ("dsb" ::: "memory");
+    __asm__ volatile ("dmb" ::: "memory");
     /* ---------------------------------------------------------- */
 
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
@@ -509,7 +509,7 @@ void cpsw_rx_poll(void)
         mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
         mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                      BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-        __asm__ volatile ("dsb" ::: "memory");
+        __asm__ volatile ("dmb" ::: "memory");
         mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
         return;
     }
@@ -534,6 +534,6 @@ void cpsw_rx_poll(void)
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-    __asm__ volatile ("dsb" ::: "memory");
+    __asm__ volatile ("dmb" ::: "memory");
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 }
