@@ -139,16 +139,27 @@ static inline uint16_t bswap16(uint16_t v)
     return (uint16_t)((v >> 8) | (v << 8));
 }
 
-/* One's complement checksum — RFC 791 (IP) / RFC 792 (ICMP) */
+/* ----------------------------------------------------------
+ * [FIX] net_cksum — tránh unaligned memory access
+ * ----------------------------------------------------------
+ * Vấn đề: cast (uint8_t *) → (uint16_t *) rồi dereference.
+ * Nguyên nhân: ARMv7-A phát Data Abort khi đọc uint16_t từ
+ *   địa chỉ lẻ (không align 2-byte). RX buffer từ CPSW và
+ *   các static buffer không đảm bảo align.
+ * Fix: đọc từng byte thủ công, ghép thành word 16-bit.
+ * ---------------------------------------------------------- */
 static uint16_t net_cksum(const uint8_t *p, uint32_t len)
 {
     uint32_t s = 0;
-    const uint16_t *w = (const uint16_t *)p;
-    while (len > 1) { s = s + *w; w = w + 1; len = len - 2; }
-    if (len) s = s + *(const uint8_t *)w;
+    while (len > 1) {
+        s += ((uint32_t)p[0] << 8) | p[1];
+        p += 2; len -= 2;
+    }
+    if (len) s += (uint32_t)p[0] << 8;
     while (s >> 16) s = (s & 0xFFFF) + (s >> 16);
     return (uint16_t)(~s);
 }
+/* ---------------------------------------------------------- */
 
 static int mac_is_bcast(const uint8_t *m)
 {
@@ -388,6 +399,18 @@ static void udp_rx(uint32_t src_ip, const uint8_t *payload, uint16_t len)
     uint16_t dlen = bswap16(hdr->length);
     if (dlen < UDP_HEADER_LEN) return;
     dlen = (uint16_t)(dlen - UDP_HEADER_LEN);
+    /* ----------------------------------------------------------
+     * [FIX] Clamp dlen theo bytes thực nhận
+     * ----------------------------------------------------------
+     * Vấn đề: hdr->length là giá trị trong UDP header — có thể
+     *   lớn hơn số bytes thực sự nhận được (truncated packet).
+     * Nguyên nhân: không có bound check → callback đọc ngoài
+     *   RX buffer.
+     * Fix: clamp dlen xuống max_dlen tính từ len thực tế.
+     * ---------------------------------------------------------- */
+    uint16_t max_dlen = (len > UDP_HEADER_LEN) ? (len - UDP_HEADER_LEN) : 0;
+    if (dlen > max_dlen) dlen = max_dlen;
+    /* ---------------------------------------------------------- */
 
     if (g_udp_cb)
         g_udp_cb(src_ip, bswap16(hdr->src_port), bswap16(hdr->dst_port),
@@ -413,7 +436,18 @@ static void ip_rx(const uint8_t *payload, uint16_t len)
 
     if (hdr->dst_ip != g_ip && hdr->dst_ip != 0xFFFFFFFF) return;
 
-    uint16_t ip_plen      = (uint16_t)(bswap16(hdr->total_len) - IP_HEADER_LEN);
+    uint16_t total   = bswap16(hdr->total_len);
+    /* ----------------------------------------------------------
+     * [FIX] Guard ip_plen underflow — malformed packet
+     * ----------------------------------------------------------
+     * Vấn đề: nếu total_len < IP_HEADER_LEN hoặc total_len >
+     *   len thực nhận, phép trừ tạo ra giá trị rất lớn (wrap).
+     * Nguyên nhân: uint16_t underflow — không có bound check.
+     * Fix: validate total trước khi tính ip_plen.
+     * ---------------------------------------------------------- */
+    if (total < IP_HEADER_LEN || total > len) return;
+    uint16_t ip_plen      = total - IP_HEADER_LEN;
+    /* ---------------------------------------------------------- */
     const uint8_t *ip_pay = payload + IP_HEADER_LEN;
 
     if (hdr->protocol == IP_PROTO_ICMP)

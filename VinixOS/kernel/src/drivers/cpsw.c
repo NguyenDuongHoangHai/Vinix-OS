@@ -69,12 +69,29 @@
 #define CPDMA_TX_CONTROL           (CPSW_CPDMA_BASE + 0x004u)
 #define CPDMA_RX_CONTROL           (CPSW_CPDMA_BASE + 0x014u)
 #define CPDMA_SOFT_RESET           (CPSW_CPDMA_BASE + 0x01Cu)
-#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x030u)
+#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x024u) /* TRM Table 14-38 offset 24h */
+#define CPDMA_TX_INTSTAT_RAW       (CPSW_CPDMA_BASE + 0x080u) /* TRM Table 14-38 offset 80h */
 #define CPDMA_TX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x08Cu)
 #define CPDMA_RX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x0ACu)
 #define CPDMA_SOFT_RESET_BIT       (1u << 0)
 #define CPDMA_TX_EN                (1u << 0)
 #define CPDMA_RX_EN                (1u << 0)
+
+/* ============================================================
+ * [FIX] CPSW_WR — Wrapper / Interrupt Pacing registers
+ * ------------------------------------------------------------
+ * Vấn đề: CPDMA TX stall — TX BD giữ OWNER=1 mãi không release.
+ * Nguyên nhân: CPSW_WR interrupt pacing (C0_TX_EN / C0_RX_EN)
+ *   mặc định enabled sau reset. Ở polling mode không có EOI write
+ *   → CPDMA chờ interrupt ack không bao giờ đến → TX/RX bị block.
+ * Fix: khai báo CPSW_WR registers để clear trong cpsw_cpdma_init().
+ * Ref: AM335x TRM Ch.14 §14.3.4 — CPSW_WR_C0_TX/RX_EN
+ * ============================================================ */
+#define CPSW_WR_BASE                0x4A101200u
+#define CPSW_WR_SOFT_RESET         (CPSW_WR_BASE + 0x004u)
+#define CPSW_WR_C0_TX_EN           (CPSW_WR_BASE + 0x02Cu)
+#define CPSW_WR_C0_RX_EN           (CPSW_WR_BASE + 0x030u)
+/* ------------------------------------------------------------ */
 
 /* ============================================================
  * STATERAM — Head/Completion Descriptor Pointers
@@ -232,6 +249,23 @@ static int cpsw_cpdma_init(void)
 
     mmio_write32(CPDMA_TX_INTMASK_CLEAR, 0xFFu);
     mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0xFFu);
+
+    /* ----------------------------------------------------------
+     * [FIX] Disable CPSW_WR interrupt pacing — polling mode
+     * ----------------------------------------------------------
+     * Vấn đề: log cho thấy TX BD OWNER=1 không bao giờ clear
+     *   → "Loopback TX: TIMEOUT". CPDMA không process BD.
+     * Nguyên nhân: CPSW_WR C0_TX_EN / C0_RX_EN mặc định = 0xFF
+     *   sau power-on. Khi pacing enabled, CPDMA phát interrupt
+     *   rồi chờ CPU ghi EOI vào CPSW_WR_C0_TX_EN để tiếp tục.
+     *   Polling mode không có IRQ handler → EOI không bao giờ
+     *   được ghi → CPDMA stall vĩnh viễn.
+     * Fix: clear cả 2 register về 0 trước khi enable TX/RX.
+     * ---------------------------------------------------------- */
+    mmio_write32(CPSW_WR_C0_TX_EN, 0);
+    mmio_write32(CPSW_WR_C0_RX_EN, 0);
+    /* ---------------------------------------------------------- */
+
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
     uart_printf("[CPSW] CPDMA TX_CTRL=0x%08x  RX_CTRL=0x%08x  DMASTATUS=0x%08x\n",
@@ -303,7 +337,19 @@ static void cpsw_loopback_selftest(void)
     };
     int i;
 
-    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN | MAC_LOOPBACK);
+    /* ----------------------------------------------------------
+     * [FIX] Set LOOPBACK trước GMII_EN — đúng thứ tự TRM
+     * ----------------------------------------------------------
+     * Vấn đề: code cũ ghi GMII_EN | LOOPBACK cùng lúc, hoặc
+     *   bật LOOPBACK sau khi MAC đã live (GMII_EN=1).
+     * Nguyên nhân: TRM Ch.14 yêu cầu GMII_EN là bit cuối cùng
+     *   được set — nó "release" MAC khỏi reset. Bật LOOPBACK
+     *   trên MAC đang live gây undefined behavior ở MAC sliver.
+     * Fix: set LOOPBACK trước, rồi mới set GMII_EN.
+     * ---------------------------------------------------------- */
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_LOOPBACK);
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_LOOPBACK | MAC_GMII_EN);
+    /* ---------------------------------------------------------- */
 
     /* NOTE: STATERAM_RX0_HDP already set by cpsw_bd_init.
      * CPDMA spec: writing to a non-zero HDP is INVALID — do NOT write again. */
