@@ -66,6 +66,17 @@
 #define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x024u)
 #define CPDMA_RX_BUFFER_OFFSET     (CPSW_CPDMA_BASE + 0x028u)
 #define CPDMA_TX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x08Cu)
+/* ----------------------------------------------------------
+ * [FIX] CPDMA_EOI_VECTOR — End of Interrupt
+ * ----------------------------------------------------------
+ * TRM Ch.14 §14.3.1.2: sau khi xử lý RX packet, CPU phải
+ * ghi 1h vào CPDMA_EOI_VECTOR để clear interrupt state.
+ * Không ghi EOI → CPDMA không clear → stuck sau frame đầu.
+ * ---------------------------------------------------------- */
+#define CPDMA_EOI_VECTOR           (CPSW_CPDMA_BASE + 0x094u)
+#define CPDMA_EOI_RX               1u
+#define CPDMA_EOI_TX               2u
+/* ---------------------------------------------------------- */
 #define CPDMA_RX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x0ACu)
 #define CPDMA_SOFT_RESET_BIT       (1u << 0)
 #define CPDMA_TX_EN                (1u << 0)
@@ -358,6 +369,17 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
+    static uint32_t call_count = 0;
+    call_count = call_count + 1;
+
+    /* Dump state every 10000 calls to confirm poll is running */
+    if (call_count % 10000 == 0)
+        uart_printf("[CPSW] poll#%u  FLAGS=0x%08x  DMASTAT=0x%08x  HDP=0x%08x\n",
+                    call_count,
+                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
+                    mmio_read32(CPDMA_DMASTATUS),
+                    mmio_read32(STATERAM_RX0_HDP));
+
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
         return;
@@ -370,6 +392,16 @@ void cpsw_rx_poll(void)
 
     /* Ack completed BD */
     mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+
+    /* ----------------------------------------------------------
+     * [FIX] Write EOI to CPDMA_EOI_VECTOR
+     * ----------------------------------------------------------
+     * TRM Ch.14 §14.3.1.2: sau khi ghi RX_CP, phải ghi 1h
+     * vào CPDMA_EOI_VECTOR để clear interrupt state.
+     * Thiếu bước này → CPDMA không nhận frame tiếp theo.
+     * ---------------------------------------------------------- */
+    mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
+    /* ---------------------------------------------------------- */
 
     /* Re-arm RX BD and restart DMA */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
