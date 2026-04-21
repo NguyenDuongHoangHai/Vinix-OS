@@ -287,21 +287,17 @@ static int cpsw_cpdma_init(void)
     /* ---------------------------------------------------------- */
 
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
-    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
 
     /* ----------------------------------------------------------
-     * [FIX] RX_BUFFER_OFFSET phải = 0
+     * [FIX] RX_BUFFER_OFFSET = 0 trước khi enable RX channel
      * ----------------------------------------------------------
-     * Vấn đề: CPDMA nhận frame từ PHY nhưng không clear OWNER
-     *   bit trong RX BD → CPU không thấy frame nào.
-     * Nguyên nhân: CPDMA_RX_BUFFER_OFFSET (offset 0x028) có thể
-     *   có giá trị stale từ bootloader. Nếu != 0, CPDMA thêm
-     *   padding vào đầu buffer → BD length accounting sai →
-     *   frame bị drop silently.
-     * Fix: explicit set = 0 sau khi enable RX channel.
+     * Vấn đề: CPDMA nhận frame nhưng không deliver lên CPU.
+     * Fix: clear buffer offset trước khi enable channel.
      * ---------------------------------------------------------- */
     mmio_write32(CPDMA_RX_BUFFER_OFFSET, 0);
     /* ---------------------------------------------------------- */
+
+    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
     uart_printf("[CPSW] CPDMA TX_CTRL=0x%08x  RX_CTRL=0x%08x  DMASTATUS=0x%08x\n",
                 mmio_read32(CPDMA_TX_CONTROL),
                 mmio_read32(CPDMA_RX_CONTROL),
@@ -376,8 +372,9 @@ static void cpsw_bd_init(void)
                 mmio_read32(RX_BD_PA + BD_OFF_BUFPTR),
                 mmio_read32(RX_BD_PA + BD_OFF_BUFLEN),
                 mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
-    uart_printf("[CPSW] DMASTATUS after HDP kick=0x%08x\n",
-                mmio_read32(CPDMA_DMASTATUS));
+    uart_printf("[CPSW] DMASTATUS after HDP kick=0x%08x  RX0_HDP=0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS),
+                mmio_read32(STATERAM_RX0_HDP));
 }
 
 /* ============================================================
