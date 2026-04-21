@@ -70,13 +70,18 @@
 #define CPDMA_TX_CONTROL           (CPSW_CPDMA_BASE + 0x004u)
 #define CPDMA_RX_CONTROL           (CPSW_CPDMA_BASE + 0x014u)
 #define CPDMA_SOFT_RESET           (CPSW_CPDMA_BASE + 0x01Cu)
-#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x024u) /* TRM Table 14-38 offset 24h */
-#define CPDMA_TX_INTSTAT_RAW       (CPSW_CPDMA_BASE + 0x080u) /* TRM Table 14-38 offset 80h */
+#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x024u)
+#define CPDMA_RX_BUFFER_OFFSET     (CPSW_CPDMA_BASE + 0x028u)
+#define CPDMA_TX_INTSTAT_RAW       (CPSW_CPDMA_BASE + 0x080u)
 #define CPDMA_TX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x08Cu)
+#define CPDMA_RX_INTSTAT_RAW       (CPSW_CPDMA_BASE + 0x0A0u)
 #define CPDMA_RX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x0ACu)
 #define CPDMA_SOFT_RESET_BIT       (1u << 0)
 #define CPDMA_TX_EN                (1u << 0)
 #define CPDMA_RX_EN                (1u << 0)
+/* DMASTATUS error bits — TRM Ch.14 Table 14-38 */
+#define DMASTATUS_RX_HOST_ERR      (1u << 13)
+#define DMASTATUS_TX_HOST_ERR      (1u << 21)
 
 /* ============================================================
  * [FIX] CPSW_WR — Wrapper / Interrupt Pacing registers
@@ -356,19 +361,18 @@ static void cpsw_bd_init(void)
  * ---------------------------------------------------------- */
 static void cpsw_loopback_selftest(void)
 {
-    uart_printf("[CPSW] Loopback selftest disabled — skipped\n");
-
     /* ----------------------------------------------------------
-     * Re-arm RX BD unconditionally to ensure clean RX state
-     * regardless of any previous DMA activity.
+     * [FIX] Loopback selftest disabled — tránh corrupt RX state
+     * ----------------------------------------------------------
+     * Vấn đề: selftest cũ gây DMASTATUS=0x2000 (RX_HOST_ERR
+     *   code=1: SOP buffer not owned by DMA) → CPDMA stuck.
+     * Nguyên nhân 1: selftest dùng chung RX BD với normal RX.
+     * Nguyên nhân 2: ghi RX0_CP khi chưa có frame completed
+     *   là invalid per TRM Ch.14 → trigger RX_HOST_ERR.
+     * Fix: skip selftest hoàn toàn. cpsw_bd_init() đã arm
+     *   RX BD đúng cách — không cần re-arm thêm ở đây.
      * ---------------------------------------------------------- */
-    mmio_write32(STATERAM_RX0_CP,  RX_BD_PA);
-    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
-                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    uart_printf("[CPSW] Loopback selftest disabled — skipped\n");
     /* ---------------------------------------------------------- */
 }
 
@@ -462,6 +466,30 @@ void cpsw_rx_poll(void)
                     mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
                     mmio_read32(CPDMA_DMASTATUS),
                     mmio_read32(SL1_MACCONTROL));
+
+    /* ----------------------------------------------------------
+     * [FIX] CPDMA RX_HOST_ERR recovery
+     * ----------------------------------------------------------
+     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR code=1: SOP buffer
+     *   not owned by DMA) → CPDMA RX channel stuck.
+     * Nguyên nhân: ghi RX0_CP không đúng lúc trong selftest
+     *   (đã fix) trigger error state. Recovery: ack CP + re-arm.
+     * Fix: mỗi lần poll, nếu detect error thì recover và return.
+     *   Không dùng static flag — error có thể xảy ra nhiều lần
+     *   nếu có race condition, cần recover mỗi lần.
+     * ---------------------------------------------------------- */
+    uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
+    if (dmastat & DMASTATUS_RX_HOST_ERR) {
+        mmio_write32(STATERAM_RX0_CP,  RX_BD_PA);
+        mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                     BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+        return;
+    }
+    /* ---------------------------------------------------------- */
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
