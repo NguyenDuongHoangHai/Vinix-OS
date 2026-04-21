@@ -16,7 +16,7 @@
 #include "uart.h"
 #include "string.h"
 
-extern uint32_t scheduler_get_tick(void);
+extern uint32_t timer_get_ticks(void);
 
 /* ============================================================
  * === CONSTANTS ===
@@ -195,7 +195,7 @@ static int ether_tx(const uint8_t *dst, uint16_t etype,
 
 static arp_entry_t *arp_find(uint32_t ip)
 {
-    uint32_t now = scheduler_get_tick();
+    uint32_t now = timer_get_ticks();
     for (int i = 0; i < ARP_CACHE_SIZE; i = i + 1) {
         if (g_arp[i].valid && g_arp[i].ip == ip) {
             if ((now - g_arp[i].ts) < ARP_TIMEOUT)
@@ -221,7 +221,7 @@ static void arp_cache_update(uint32_t ip, const uint8_t *mac)
     arp_entry_t *e = arp_find(ip);
     if (!e) e = arp_alloc();
     e->ip    = ip;
-    e->ts    = scheduler_get_tick();
+    e->ts    = timer_get_ticks();
     e->valid = 1;
     memcpy(e->mac, mac, 6);
 }
@@ -372,7 +372,7 @@ static void icmp_rx(uint32_t src_ip, const uint8_t *payload, uint16_t len)
         g_icmp_rep.got = 1;
         g_icmp_rep.id  = bswap16(hdr->id);
         g_icmp_rep.seq = bswap16(hdr->seq);
-        g_icmp_rep.ts  = scheduler_get_tick();
+        g_icmp_rep.ts  = timer_get_ticks();
     }
 }
 
@@ -508,12 +508,12 @@ int netcore_ping(uint32_t dst_ip, uint16_t id, uint16_t seq,
     g_icmp_rep.got = 0;
     if (ip_tx(dst_ip, IP_PROTO_ICMP, buf, len) != 0) return -1;
 
-    uint32_t t0 = scheduler_get_tick();
+    uint32_t t0 = timer_get_ticks();
     for (int i = ICMP_WAIT_ITER; i > 0; i = i - 1) {
         cpsw_rx_poll();
         if (g_icmp_rep.got && g_icmp_rep.id == id && g_icmp_rep.seq == seq) {
             if (rtt_ticks)
-                *rtt_ticks = scheduler_get_tick() - t0;
+                *rtt_ticks = timer_get_ticks() - t0;
             g_icmp_rep.got = 0;
             return 0;
         }
