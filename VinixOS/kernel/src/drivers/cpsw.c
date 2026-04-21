@@ -338,76 +338,38 @@ static void cpsw_bd_init(void)
 }
 
 /* ============================================================
- * MAC loopback self-test — connects TX directly to RX inside
- * the MAC Sliver, bypassing MII pins and PHY entirely.
- * PASS → internal CPSW→CPDMA path works; external MII issue.
- * FAIL → CPDMA or CPSW internal path broken.
- * ============================================================ */
+ * MAC loopback self-test — DISABLED
+ * ----------------------------------------------------------
+ * [FIX] Loopback selftest phá RX path khi FAIL
+ * ----------------------------------------------------------
+ * Vấn đề: sau khi selftest FAIL, DMASTATUS=0x200000
+ *   (RX_HOST_ERR, error code=2: ownership bit not set).
+ *   RX BD bị để lại ở trạng thái lỗi → cpsw_rx_poll()
+ *   không bao giờ nhận được frame từ wire → ping timeout.
+ * Nguyên nhân: selftest dùng chung RX BD với normal RX.
+ *   Khi TX loopback TIMEOUT, TX DMA vẫn có thể deliver frame
+ *   muộn vào RX BD → RX BD bị consumed không đúng lúc →
+ *   re-arm sau goto done không đủ để recover CPDMA error state.
+ * Fix: disable selftest, re-arm RX BD sạch trước khi init
+ *   complete. Selftest có thể enable lại sau khi RX path
+ *   đã verify hoạt động độc lập.
+ * ---------------------------------------------------------- */
 static void cpsw_loopback_selftest(void)
 {
-    static const uint8_t test_pkt[64] = {
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  /* dst: broadcast */
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x01,  /* src: our MAC */
-        0x90, 0x00,                           /* ethertype: loopback test */
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    };
-    int i;
+    uart_printf("[CPSW] Loopback selftest disabled — skipped\n");
 
     /* ----------------------------------------------------------
-     * [FIX] Set LOOPBACK trước GMII_EN — đúng thứ tự TRM
-     * ----------------------------------------------------------
-     * Vấn đề: code cũ ghi GMII_EN | LOOPBACK cùng lúc, hoặc
-     *   bật LOOPBACK sau khi MAC đã live (GMII_EN=1).
-     * Nguyên nhân: TRM Ch.14 yêu cầu GMII_EN là bit cuối cùng
-     *   được set — nó "release" MAC khỏi reset. Bật LOOPBACK
-     *   trên MAC đang live gây undefined behavior ở MAC sliver.
-     * Fix: set LOOPBACK trước, rồi mới set GMII_EN.
+     * Re-arm RX BD unconditionally to ensure clean RX state
+     * regardless of any previous DMA activity.
      * ---------------------------------------------------------- */
-    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_LOOPBACK);
-    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_LOOPBACK | MAC_GMII_EN);
+    mmio_write32(STATERAM_RX0_CP,  RX_BD_PA);
+    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
     /* ---------------------------------------------------------- */
-
-    /* NOTE: STATERAM_RX0_HDP already set by cpsw_bd_init.
-     * CPDMA spec: writing to a non-zero HDP is INVALID — do NOT write again. */
-
-    cpsw_tx(test_pkt, 64);
-    uart_printf("[CPSW] TX kicked: TX0_HDP=0x%08x  TX_FLAGS=0x%08x\n",
-                mmio_read32(STATERAM_TX0_HDP),
-                mmio_read32(TX_BD_PA + BD_OFF_FLAGS));
-
-    /* Phase 1: confirm TX DMA released the TX BD */
-    for (i = 0; i < 100000; i = i + 1) {
-        if (!(mmio_read32(TX_BD_PA + BD_OFF_FLAGS) & BD_OWNER))
-            break;
-    }
-    uart_printf("[CPSW] Loopback TX: %s  TX_CP=0x%08x  TX0_HDP=0x%08x  DMASTATUS=0x%08x  TX_FLAGS=0x%08x\n",
-                (i < 100000) ? "SENT" : "TIMEOUT",
-                mmio_read32(STATERAM_TX0_CP),
-                mmio_read32(STATERAM_TX0_HDP),
-                mmio_read32(CPDMA_DMASTATUS),
-                mmio_read32(TX_BD_PA + BD_OFF_FLAGS));
-
-    /* Phase 2: wait for RX DMA to receive the looped-back frame */
-    for (i = 0; i < 200000; i = i + 1) {
-        uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
-        if (!(flags & BD_OWNER)) {
-            uart_printf("[CPSW] Loopback PASS — len=%d\n", (int)(flags & 0xFFFFu));
-            /* CPDMA cleared HDP to 0 after EOQ — ack and restart */
-            mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
-            mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
-                         BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-            mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
-            goto done;
-        }
-    }
-    uart_printf("[CPSW] Loopback FAIL — RX timeout  RX_HDP=0x%08x  RX_FLAGS=0x%08x\n",
-                mmio_read32(STATERAM_RX0_HDP),
-                mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
-
-done:
-    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN);
 }
 
 /* ============================================================
