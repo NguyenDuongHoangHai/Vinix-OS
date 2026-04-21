@@ -380,6 +380,20 @@ static void cpsw_bd_init(void)
 
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
+    /* ----------------------------------------------------------
+     * [FIX] Pre-ack RX_CP sau khi kick HDP
+     * ----------------------------------------------------------
+     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR) ngay poll đầu tiên
+     *   sau scheduler start — trước khi có traffic từ laptop.
+     * Nguyên nhân: frame broadcast (LLDP/STP) đến ngay khi link
+     *   up, CPDMA fill BD và set RX_CP. CPU chưa kịp ack RX_CP
+     *   → CPDMA timeout → RX_HOST_ERR.
+     * Fix: ack RX_CP = RX_BD_PA ngay sau kick HDP để clear bất
+     *   kỳ stale completion pointer nào.
+     * ---------------------------------------------------------- */
+    mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+    /* ---------------------------------------------------------- */
+
     /* Diagnostic: verify BD was written correctly to CPPI_RAM */
     uart_printf("[CPSW] BD init done, RX armed\n");
     uart_printf("[CPSW] RX BD verify: NEXT=0x%08x BUFPTR=0x%08x BUFLEN=0x%08x FLAGS=0x%08x\n",
