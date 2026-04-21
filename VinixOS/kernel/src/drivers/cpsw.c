@@ -456,10 +456,12 @@ void cpsw_rx_poll(void)
     static uint32_t poll_count = 0;
     poll_count = poll_count + 1;
     if (poll_count % 500 == 0)
-        uart_printf("[CPSW] poll #%u  RX0_HDP=0x%08x  BD_FLAGS=0x%08x\n",
+        uart_printf("[CPSW] poll #%u  RX0_HDP=0x%08x  BD_FLAGS=0x%08x  DMASTATUS=0x%08x  MACCTRL=0x%08x\n",
                     poll_count,
                     mmio_read32(STATERAM_RX0_HDP),
-                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
+                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
+                    mmio_read32(CPDMA_DMASTATUS),
+                    mmio_read32(SL1_MACCONTROL));
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
