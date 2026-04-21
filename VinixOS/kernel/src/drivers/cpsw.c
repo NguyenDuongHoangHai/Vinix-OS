@@ -289,13 +289,9 @@ static void cpsw_bd_init(void)
 static void cpsw_loopback_selftest(void)
 {
     static const uint8_t test_pkt[64] = {
-        /* dst: broadcast — ALE bypass forwards to host port 0 */
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        /* src: our MAC */
-        0xde, 0xad, 0xbe, 0xef, 0x00, 0x01,
-        /* ethertype: 0x9000 (loopback test, unused by netcore) */
-        0x90, 0x00,
-        /* payload: zeros (pad to 64 bytes minimum) */
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  /* dst: broadcast */
+        0xde, 0xad, 0xbe, 0xef, 0x00, 0x01,  /* src: our MAC */
+        0x90, 0x00,                           /* ethertype: loopback test */
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -304,36 +300,39 @@ static void cpsw_loopback_selftest(void)
 
     mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN | MAC_LOOPBACK);
 
-    /* Re-arm RX BD for the loopback frame */
-    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
-                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    /* NOTE: STATERAM_RX0_HDP already set by cpsw_bd_init.
+     * CPDMA spec: writing to a non-zero HDP is INVALID — do NOT write again. */
 
     cpsw_tx(test_pkt, 64);
 
+    /* Phase 1: confirm TX DMA released the TX BD */
     for (i = 0; i < 100000; i = i + 1) {
+        if (!(mmio_read32(TX_BD_PA + BD_OFF_FLAGS) & BD_OWNER))
+            break;
+    }
+    uart_printf("[CPSW] Loopback TX: %s  TX_CP=0x%08x  TX_FLAGS=0x%08x\n",
+                (i < 100000) ? "SENT" : "TIMEOUT",
+                mmio_read32(STATERAM_TX0_CP),
+                mmio_read32(TX_BD_PA + BD_OFF_FLAGS));
+
+    /* Phase 2: wait for RX DMA to receive the looped-back frame */
+    for (i = 0; i < 200000; i = i + 1) {
         uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
         if (!(flags & BD_OWNER)) {
-            uart_printf("[CPSW] Loopback PASS — CPDMA path OK, len=%d\n",
-                        (int)(flags & 0xFFFFu));
-            /* Ack completed BD, re-arm for normal operation */
+            uart_printf("[CPSW] Loopback PASS — len=%d\n", (int)(flags & 0xFFFFu));
+            /* CPDMA cleared HDP to 0 after EOQ — ack and restart */
             mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
-            mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
-            mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
-            mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
             mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                          BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
             mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
             goto done;
         }
     }
-    uart_printf("[CPSW] Loopback FAIL — CPDMA/CPSW internal path broken\n");
+    uart_printf("[CPSW] Loopback FAIL — RX timeout  RX_HDP=0x%08x  RX_FLAGS=0x%08x\n",
+                mmio_read32(STATERAM_RX0_HDP),
+                mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
 
 done:
-    /* Restore normal mode — no loopback */
     mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN);
 }
 
