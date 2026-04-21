@@ -9,8 +9,6 @@
 #include "mmio.h"
 #include "uart.h"
 
-extern uint32_t timer_get_ticks(void);
-
 /* ============================================================
  * PRCM — Clock Verify
  * mdio_init() owns clock enable. cpsw_init() only verifies
@@ -483,44 +481,13 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
-    static uint32_t last_log_tick = 0;
-
-    /* ----------------------------------------------------------
-     * [FIX] CPDMA RX_HOST_ERR recovery
-     * ----------------------------------------------------------
-     * Vấn đề: DMASTATUS=0x2000 (RX_HOST_ERR code=1: SOP buffer
-     *   not owned by DMA) → CPDMA RX channel stuck.
-     * Nguyên nhân: ghi RX0_CP không đúng lúc trong selftest
-     *   (đã fix) trigger error state. Recovery: ack CP + re-arm.
-     * Fix: mỗi lần poll, nếu detect error thì recover và return.
-     * ---------------------------------------------------------- */
-    uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
-    if (dmastat & DMASTATUS_RX_HOST_ERR) {
-        /* Log tối đa 1 lần mỗi 2 giây (200 ticks × 10ms) */
-        uint32_t now = timer_get_ticks();
-        if ((now - last_log_tick) >= 200) {
-            uart_printf("[CPSW] RX_HOST_ERR  DMASTATUS=0x%08x  BD_FLAGS=0x%08x\n",
-                        dmastat, mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
-            last_log_tick = now;
-        }
-        mmio_write32(STATERAM_RX0_CP,  RX_BD_PA);
-        mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
-        mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
-        mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
-        mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
-                     BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-        __asm__ volatile ("dmb" ::: "memory");
-        mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
-        return;
-    }
-    /* ---------------------------------------------------------- */
-
+    /* Check BD_FLAGS directly — if OWNER=1 DMA still holds the BD */
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
-        return;  /* DMA hasn't filled this BD yet */
+        return;
 
+    /* DMA released BD — frame received */
     uint16_t len = (uint16_t)(flags & 0xFFFFu);
-
     uart_printf("[CPSW] RX frame len=%d\n", len);
     if (s_rx_cb && len > 0)
         s_rx_cb((const uint8_t *)RX_BUF_PA, len);
@@ -528,12 +495,22 @@ void cpsw_rx_poll(void)
     /* Ack completed BD to CPDMA */
     mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
 
-    /* Re-arm RX BD and restart DMA */
+    /* Re-arm RX BD */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
     __asm__ volatile ("dmb" ::: "memory");
-    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+    /* ----------------------------------------------------------
+     * [FIX] Chỉ ghi HDP khi channel đã dừng (HDP == 0)
+     * ----------------------------------------------------------
+     * Vấn đề: ghi HDP khi channel active → RX_HOST_ERR loop.
+     * Nguyên nhân: TRM Ch.14 — ghi HDP khi HDP != 0 là INVALID.
+     * Fix: chỉ restart HDP khi CPDMA đã clear HDP về 0 (EOQ).
+     * ---------------------------------------------------------- */
+    if (mmio_read32(STATERAM_RX0_HDP) == 0)
+        mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    /* ---------------------------------------------------------- */
 }
