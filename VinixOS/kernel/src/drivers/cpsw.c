@@ -69,6 +69,7 @@
 #define CPDMA_TX_CONTROL           (CPSW_CPDMA_BASE + 0x004u)
 #define CPDMA_RX_CONTROL           (CPSW_CPDMA_BASE + 0x014u)
 #define CPDMA_SOFT_RESET           (CPSW_CPDMA_BASE + 0x01Cu)
+#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x030u)
 #define CPDMA_TX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x08Cu)
 #define CPDMA_RX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x0ACu)
 #define CPDMA_SOFT_RESET_BIT       (1u << 0)
@@ -233,6 +234,10 @@ static int cpsw_cpdma_init(void)
     mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0xFFu);
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    uart_printf("[CPSW] CPDMA TX_CTRL=0x%08x  RX_CTRL=0x%08x  DMASTATUS=0x%08x\n",
+                mmio_read32(CPDMA_TX_CONTROL),
+                mmio_read32(CPDMA_RX_CONTROL),
+                mmio_read32(CPDMA_DMASTATUS));
     uart_printf("[CPSW] CPDMA init done\n");
     return 0;
 }
@@ -304,15 +309,20 @@ static void cpsw_loopback_selftest(void)
      * CPDMA spec: writing to a non-zero HDP is INVALID — do NOT write again. */
 
     cpsw_tx(test_pkt, 64);
+    uart_printf("[CPSW] TX kicked: TX0_HDP=0x%08x  TX_FLAGS=0x%08x\n",
+                mmio_read32(STATERAM_TX0_HDP),
+                mmio_read32(TX_BD_PA + BD_OFF_FLAGS));
 
     /* Phase 1: confirm TX DMA released the TX BD */
     for (i = 0; i < 100000; i = i + 1) {
         if (!(mmio_read32(TX_BD_PA + BD_OFF_FLAGS) & BD_OWNER))
             break;
     }
-    uart_printf("[CPSW] Loopback TX: %s  TX_CP=0x%08x  TX_FLAGS=0x%08x\n",
+    uart_printf("[CPSW] Loopback TX: %s  TX_CP=0x%08x  TX0_HDP=0x%08x  DMASTATUS=0x%08x  TX_FLAGS=0x%08x\n",
                 (i < 100000) ? "SENT" : "TIMEOUT",
                 mmio_read32(STATERAM_TX0_CP),
+                mmio_read32(STATERAM_TX0_HDP),
+                mmio_read32(CPDMA_DMASTATUS),
                 mmio_read32(TX_BD_PA + BD_OFF_FLAGS));
 
     /* Phase 2: wait for RX DMA to receive the looped-back frame */
