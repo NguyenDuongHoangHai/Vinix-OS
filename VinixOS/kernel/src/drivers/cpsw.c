@@ -26,6 +26,9 @@
  * MDIO_DATA and MDIO_CLK already configured by mdio_init().
  * ============================================================ */
 #define CTRL_BASE                   0x44E10000u
+/* GMII_SEL: selects MII/RMII/RGMII for CPSW ports — AM335x TRM Ch.09 §9.3.1.50 */
+#define CONF_GMII_SEL              (CTRL_BASE + 0x650u)
+#define GMII1_SEL_MII              0x00u  /* bits[1:0]=00: Port1 = MII */
 #define CONF_MII1_COL              (CTRL_BASE + 0x908u)
 #define CONF_MII1_CRS              (CTRL_BASE + 0x90Cu)
 #define CONF_MII1_RX_ER            (CTRL_BASE + 0x910u)
@@ -173,6 +176,11 @@ static int cpsw_clock_verify(void)
 
 static void cpsw_pinmux_init(void)
 {
+    /* U-Boot may leave GMII_SEL in RMII/RGMII mode — force MII for Port 1 */
+    mmio_write32(CONF_GMII_SEL,    GMII1_SEL_MII);
+    uart_printf("[CPSW] GMII_SEL=0x%08x (set to MII)\n",
+                mmio_read32(CONF_GMII_SEL));
+
     mmio_write32(CONF_MII1_TX_EN,  PIN_TX);
     mmio_write32(CONF_MII1_TXD3,   PIN_TX);
     mmio_write32(CONF_MII1_TXD2,   PIN_TX);
@@ -285,6 +293,15 @@ int cpsw_init(void)
     if (cpsw_mac_init()      != 0) return -1;
     cpsw_ale_init();
     cpsw_bd_init();
+
+    /* Diagnostic: verify key register state after full init */
+    uart_printf("[CPSW] MACCTRL=0x%08x  ALE_CTRL=0x%08x\n",
+                mmio_read32(SL1_MACCONTROL), mmio_read32(ALE_CONTROL));
+    uart_printf("[CPSW] ALE_P0=0x%08x   ALE_P1=0x%08x\n",
+                mmio_read32(ALE_PORTCTL0), mmio_read32(ALE_PORTCTL1));
+    uart_printf("[CPSW] RX0_HDP=0x%08x  CPDMA_RX_CTRL=0x%08x\n",
+                mmio_read32(STATERAM_RX0_HDP), mmio_read32(CPDMA_RX_CONTROL));
+
     uart_printf("[CPSW] init complete\n");
     return 0;
 }
@@ -345,7 +362,10 @@ void cpsw_rx_poll(void)
     static uint32_t poll_count = 0;
     poll_count = poll_count + 1;
     if (poll_count % 500 == 0)
-        uart_printf("[CPSW] poll #%d\n", poll_count);
+        uart_printf("[CPSW] poll #%u  RX0_HDP=0x%08x  BD_FLAGS=0x%08x\n",
+                    poll_count,
+                    mmio_read32(STATERAM_RX0_HDP),
+                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
