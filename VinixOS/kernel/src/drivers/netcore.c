@@ -130,6 +130,10 @@ static void (*g_udp_cb)(uint32_t src_ip, uint16_t src_port,
                          uint16_t dst_port,
                          const uint8_t *data, uint16_t len);
 
+/* Counters for Layer 3 test suite */
+static uint32_t g_icmp_rx_count = 0;
+static uint32_t g_icmp_tx_count = 0;
+
 /* ============================================================
  * === HELPERS ===
  * ============================================================ */
@@ -367,6 +371,8 @@ static void icmp_rx(uint32_t src_ip, const uint8_t *payload, uint16_t len)
         uart_printf("[NET] ICMP Echo Reply → %d.%d.%d.%d\n",
                     src_ip & 0xFF, (src_ip >> 8) & 0xFF,
                     (src_ip >> 16) & 0xFF, (src_ip >> 24) & 0xFF);
+        g_icmp_rx_count++;
+        g_icmp_tx_count++;
 
     } else if (hdr->type == ICMP_ECHO_REP) {
         g_icmp_rep.got = 1;
@@ -538,4 +544,78 @@ void netcore_set_udp_handler(void (*cb)(uint32_t src_ip, uint16_t src_port,
                                         const uint8_t *data, uint16_t len))
 {
     g_udp_cb = cb;
+}
+
+/* ============================================================
+ * === TEST SUITE SUPPORT APIs ===
+ * ============================================================ */
+
+uint16_t netcore_cksum(const uint8_t *p, uint32_t len)
+{
+    return net_cksum(p, len);
+}
+
+int netcore_build_arp_request(uint8_t *buf, uint16_t buflen, uint32_t target_ip)
+{
+    if (buflen < ETH_HEADER_LEN + sizeof(arp_pkt_t))
+        return -1;
+
+    static const uint8_t bcast[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
+    /* Ethernet header */
+    eth_hdr_t *eth = (eth_hdr_t *)buf;
+    memcpy(eth->dst, bcast, 6);
+    memcpy(eth->src, g_mac, 6);
+    eth->ethertype = bswap16(ETHERTYPE_ARP);
+
+    /* ARP packet */
+    arp_pkt_t *arp = (arp_pkt_t *)(buf + ETH_HEADER_LEN);
+    arp->hw_type    = bswap16(0x0001);
+    arp->proto_type = bswap16(ETHERTYPE_IPV4);
+    arp->hw_len     = 6;
+    arp->proto_len  = 4;
+    arp->opcode     = bswap16(0x0001);
+    memcpy(arp->sender_mac, g_mac, 6);
+    arp->sender_ip  = g_ip;
+    memset(arp->target_mac, 0, 6);
+    arp->target_ip  = target_ip;
+
+    return ETH_HEADER_LEN + sizeof(arp_pkt_t);
+}
+
+int netcore_build_icmp_reply(uint8_t *rep, uint16_t replen,
+                              const uint8_t *req, uint16_t reqlen)
+{
+    if (reqlen < ICMP_HEADER_LEN || replen < reqlen)
+        return -1;
+
+    /* Copy request to reply */
+    memcpy(rep, req, reqlen);
+
+    /* Change type to Echo Reply */
+    rep[0] = ICMP_ECHO_REP;
+
+    /* Recompute checksum */
+    rep[2] = 0;
+    rep[3] = 0;
+    uint16_t cksum = net_cksum(rep, reqlen);
+    rep[2] = (uint8_t)(cksum >> 8);
+    rep[3] = (uint8_t)(cksum & 0xFF);
+
+    return reqlen;
+}
+
+int netcore_arp_resolve(uint32_t ip, uint8_t *mac_out)
+{
+    return arp_resolve(ip, mac_out);
+}
+
+uint32_t netcore_get_icmp_rx_count(void)
+{
+    return g_icmp_rx_count;
+}
+
+uint32_t netcore_get_icmp_tx_count(void)
+{
+    return g_icmp_tx_count;
 }

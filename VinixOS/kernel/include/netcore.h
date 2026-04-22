@@ -41,4 +41,28 @@ int      netcore_ping(uint32_t dst_ip, uint16_t id, uint16_t seq,
 void     netcore_get_mac(uint8_t mac[6]);
 uint32_t netcore_get_ip(void);
 
+/* ============================================================
+ * Test Suite Support APIs — dùng bởi testcase/layer3/
+ * ============================================================ */
+
+/* One's complement checksum — RFC 791/792 */
+uint16_t netcore_cksum(const uint8_t *p, uint32_t len);
+
+/* Build ARP request vào buf (cần ít nhất 42 bytes).
+ * Returns frame length hoặc -1 nếu buf quá nhỏ. */
+int netcore_build_arp_request(uint8_t *buf, uint16_t buflen, uint32_t target_ip);
+
+/* Build ICMP Echo Reply từ Echo Request.
+ * Returns reply length hoặc -1 nếu lỗi. */
+int netcore_build_icmp_reply(uint8_t *rep, uint16_t replen,
+                              const uint8_t *req, uint16_t reqlen);
+
+/* Resolve IP → MAC qua ARP (poll-based, timeout ~500ms).
+ * Returns 0 nếu thành công, -1 nếu timeout. */
+int netcore_arp_resolve(uint32_t ip, uint8_t *mac_out);
+
+/* ICMP counters — tăng mỗi khi nhận/gửi Echo Request/Reply */
+uint32_t netcore_get_icmp_rx_count(void);
+uint32_t netcore_get_icmp_tx_count(void);
+
 #endif /* NETCORE_H */
