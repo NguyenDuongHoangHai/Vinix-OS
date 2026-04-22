@@ -391,6 +391,11 @@ static void cpsw_rx_recover(void)
 
     /* 7. Kick HDP then enable RX — same order as initial init */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+    /* Delay để write propagate qua L3/L4 interconnect đến CPPI_RAM
+     * trước khi CPDMA đọc BD. Đây là root cause của RX_HOST_ERR. */
+    for (volatile int i = 0; i < 500000; i++);
+
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
 
     uart_printf("[CPSW] Recovery done, DMASTATUS=0x%08x\n",
@@ -480,13 +485,11 @@ void cpsw_rx_poll(void)
     static uint8_t recover_count = 0;
     uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
     if (dmastat & DMASTATUS_RX_HOST_ERR) {
-        if (recover_count < 3) {
-            recover_count = recover_count + 1;
-            cpsw_rx_recover();
-        }
+        recover_count = recover_count + 1;
+        cpsw_rx_recover();
         return;
     }
-    recover_count = 0;  /* Reset counter on clean state */
+    recover_count = 0;
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
