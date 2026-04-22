@@ -39,10 +39,10 @@ extern void sync_selftest(void);
 #include "boot_screen.h"
 
 /* ================================================== */
-/* Hai Nguyen: add MDIO/PHY + CPSW + netcore          */
+/* Hai Nguyen: add MDIO/PHY + CPSW + Ethernet layer  */
 #include "mdio.h"
 #include "cpsw.h"
-#include "netcore.h"
+#include "ether.h"
 #ifdef ENABLE_LAYER1_TEST
 #include "mdio_test.h"
 #endif
@@ -89,14 +89,20 @@ void kernel_main(void)
     mmu_init();
 
     /* ================================================== */
-    /* Hai Nguyen: init MDIO/PHY + CPSW + netcore        */
+    /* Hai Nguyen: init MDIO/PHY + CPSW + Ethernet layer */
     mdio_init();
 #ifdef ENABLE_LAYER1_TEST
     mdio_layer1_test();
 #endif
     cpsw_init();
-    /* Board IP — change to match your LAN (e.g. 192.168.1.100) */
-    netcore_init(NETCORE_IP4(192, 168, 1, 100));
+
+    /* Layer 3: Ethernet frame driver
+     * ARP, IP, ICMP sẽ được thêm sau khi Ethernet layer hoạt động */
+    {
+        uint8_t mac[6];
+        cpsw_get_mac(mac);
+        ether_init(mac);
+    }
     /* end Hai Nguyen                                     */
     /* ================================================== */
 

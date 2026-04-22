@@ -44,7 +44,7 @@ static void idle_task(void)
         __asm__ volatile("wfi");
 
         /* Poll for incoming Ethernet frames after every IRQ wakeup.
-         * Drives netcore_rx() → ARP/IP/ICMP/UDP dispatch. */
+         * ether_rx() dispatches to registered handlers (ARP, IP, ...) */
         cpsw_rx_poll();
     }
 }
