@@ -264,18 +264,23 @@ static void cpsw_bd_init(void)
     mmio_write32(TX_BD_PA + BD_OFF_BUFLEN, 0);
     mmio_write32(TX_BD_PA + BD_OFF_FLAGS,  0);
 
-    /* RX BD: arm */
+    /* RX BD: arm — OWNER=1 means DMA owns this BD */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
-    /* Kick HDP → enable RX */
+    /* Kick HDP — tell CPDMA where the first BD is.
+     * DO NOT enable RX_CONTROL here.
+     * RX_CONTROL is enabled in cpsw_rx_irq_enable() AFTER the IRQ
+     * handler is registered. This prevents the race condition where
+     * CPDMA reads the BD before the write has propagated through the
+     * L3/L4 interconnect to CPPI_RAM (root cause of DMASTATUS=0x2000).
+     * The IRQ handler writes EOI immediately, so CPDMA never stalls. */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
-    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
 
-    uart_printf("[CPSW] BD init done, RX armed\n");
+    uart_printf("[CPSW] BD init done, HDP kicked, waiting for IRQ enable\n");
 }
 
 /* ============================================================
@@ -317,7 +322,13 @@ static void cpsw_rx_irq_init(void)
     /* Enable CPDMA RX channel 0 interrupt */
     mmio_write32(CPDMA_RX_INTMASK_SET, 0x1u);
 
-    /* Enable CPSW_WR interrupt pacing for RX — re-enabled after each frame */
+    /* Enable RX channel — done HERE, after IRQ handler is registered.
+     * By this point the system has been running for several seconds,
+     * so the BD write has long since propagated through L3/L4 to CPPI_RAM.
+     * CPDMA will read OWNER=1 correctly → no RX_HOST_ERR. */
+    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+
+    /* Enable CPSW_WR interrupt pacing for RX */
     mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
 
     /* Register ISR with IRQ framework */
