@@ -303,18 +303,16 @@ static void cpsw_rx_isr(void *data)
 {
     (void)data;
 
+    uart_printf("[CPSW] ISR fired!\n");
+
     /* Step 1: Disable interrupt pacing — prevent re-entry */
     mmio_write32(CPSW_WR_C0_RX_EN, 0);
 
-    /* Step 2: Write EOI to CPDMA — CRITICAL, must be in ISR
-     * This clears CPDMA interrupt state immediately.
-     * Linux does this in cpsw_rx_interrupt() before napi_schedule(). */
+    /* Step 2: Write EOI to CPDMA — CRITICAL, must be in ISR */
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
 
     /* Step 3: Signal pending frame to poll function */
     s_rx_pending = 1;
-
-    /* Note: INTC EOI is handled by irq_dispatch() after this returns */
 }
 
 static void cpsw_rx_irq_init(void)
@@ -322,14 +320,22 @@ static void cpsw_rx_irq_init(void)
     /* Enable CPDMA RX channel 0 interrupt */
     mmio_write32(CPDMA_RX_INTMASK_SET, 0x1u);
 
-    /* Enable RX channel — done HERE, after IRQ handler is registered.
-     * By this point the system has been running for several seconds,
-     * so the BD write has long since propagated through L3/L4 to CPPI_RAM.
-     * CPDMA will read OWNER=1 correctly → no RX_HOST_ERR. */
+    /* Enable RX channel */
+    uart_printf("[CPSW] CPDMA_RX_CONTROL before = 0x%08x\n",
+                mmio_read32(CPDMA_RX_CONTROL));
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    uart_printf("[CPSW] CPDMA_RX_CONTROL after  = 0x%08x\n",
+                mmio_read32(CPDMA_RX_CONTROL));
 
     /* Enable CPSW_WR interrupt pacing for RX */
     mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+    uart_printf("[CPSW] CPSW_WR_C0_RX_EN        = 0x%08x\n",
+                mmio_read32(CPSW_WR_C0_RX_EN));
+
+    uart_printf("[CPSW] STATERAM_RX0_HDP         = 0x%08x\n",
+                mmio_read32(STATERAM_RX0_HDP));
+    uart_printf("[CPSW] RX_BD_FLAGS              = 0x%08x\n",
+                mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
 
     /* Register ISR with IRQ framework */
     irq_register_handler(IRQ_CPSW_RX, cpsw_rx_isr, 0);
