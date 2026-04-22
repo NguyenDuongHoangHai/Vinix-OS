@@ -302,16 +302,9 @@ static void cpsw_bd_init(void)
 static void cpsw_rx_isr(void *data)
 {
     (void)data;
-
-    uart_printf("[CPSW] ISR fired!\n");
-
-    /* Step 1: Disable interrupt pacing — prevent re-entry */
+    /* NO uart_printf in ISR — must be short */
     mmio_write32(CPSW_WR_C0_RX_EN, 0);
-
-    /* Step 2: Write EOI to CPDMA — CRITICAL, must be in ISR */
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
-
-    /* Step 3: Signal pending frame to poll function */
     s_rx_pending = 1;
 }
 
@@ -363,6 +356,25 @@ static void cpsw_rx_irq_init(void)
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+
+    /* Force write buffer flush by reading back — ensures CPPI_RAM
+     * has the actual value before CPDMA reads it.
+     * On AM335x, Strongly Ordered does NOT prevent CPU write buffer.
+     * A read-back forces the write to complete before the read returns. */
+    {
+        volatile uint32_t dummy;
+        dummy = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+        dummy = mmio_read32(RX_BD_PA + BD_OFF_BUFPTR);
+        dummy = mmio_read32(RX_BD_PA + BD_OFF_BUFLEN);
+        dummy = mmio_read32(RX_BD_PA + BD_OFF_NEXT);
+        (void)dummy;
+    }
+    __asm__ volatile("dsb" ::: "memory");
+    __asm__ volatile("isb" ::: "memory");
+
+    uart_printf("[CPSW] BD verified: FLAGS=0x%08x BUFPTR=0x%08x\n",
+                mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
+                mmio_read32(RX_BD_PA + BD_OFF_BUFPTR));
 
     /* Kick HDP */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
@@ -483,17 +495,11 @@ void cpsw_rx_poll(void)
         goto process_frame;
     }
 
-    /* Fallback path: ISR not fired, check BD directly.
-     * This handles the case where IRQ routing is not working yet.
-     * If BD_FLAGS OWNER=0, a frame arrived but ISR was not called. */
+    /* Fallback path: ISR not fired, check BD directly. */
     {
         uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
-        if (dmastat & (1u << 13)) {
-            /* RX_HOST_ERR — should not happen with interrupt mode */
-            uart_printf("[CPSW] WARN: RX_HOST_ERR in poll, DMASTATUS=0x%08x\n",
-                        dmastat);
-            return;
-        }
+        if (dmastat & (1u << 13))
+            return;  /* RX_HOST_ERR — silent, no spam */
     }
 
     {
@@ -501,9 +507,7 @@ void cpsw_rx_poll(void)
         if (flags & BD_OWNER)
             return;  /* No frame ready */
 
-        /* Frame arrived but ISR was not called — log and process */
-        uart_printf("[CPSW] WARN: frame received without ISR (IRQ not working)\n");
-        /* Write EOI manually since ISR didn't */
+        /* Frame arrived but ISR was not called — process silently */
         mmio_write32(CPSW_WR_C0_RX_EN, 0);
         mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
     }
