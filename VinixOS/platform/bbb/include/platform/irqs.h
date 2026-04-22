@@ -11,4 +11,10 @@
 #define PLATFORM_IRQ_DMTIMER2 68
 #define PLATFORM_IRQ_UART0    72
 
+/* CPSW Ethernet IRQs — AM335x TRM Table 6-1 */
+#define PLATFORM_IRQ_CPSW_RX_THRESH  40
+#define PLATFORM_IRQ_CPSW_RX         41
+#define PLATFORM_IRQ_CPSW_TX         42
+#define PLATFORM_IRQ_CPSW_MISC       43
+
 #endif

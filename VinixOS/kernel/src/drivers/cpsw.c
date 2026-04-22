@@ -26,6 +26,12 @@
  * MDIO_DATA and MDIO_CLK already configured by mdio_init().
  * ============================================================ */
 #define CTRL_BASE                   0x44E10000u
+/* [FIX #2] CONF_GMII_SEL: force MII mode
+ * U-Boot may leave this in RGMII/RMII → pinmux wrong → no RX.
+ * Must be set to 0x00 (MII) before any other pin config. */
+#define CONF_GMII_SEL              (CTRL_BASE + 0x650u)
+#define GMII1_SEL_MII              0x00u
+/* ---------------------------------------------------------- */
 #define CONF_MII1_COL              (CTRL_BASE + 0x908u)
 #define CONF_MII1_CRS              (CTRL_BASE + 0x90Cu)
 #define CONF_MII1_RX_ER            (CTRL_BASE + 0x910u)
@@ -66,11 +72,41 @@
 #define CPDMA_TX_CONTROL           (CPSW_CPDMA_BASE + 0x004u)
 #define CPDMA_RX_CONTROL           (CPSW_CPDMA_BASE + 0x014u)
 #define CPDMA_SOFT_RESET           (CPSW_CPDMA_BASE + 0x01Cu)
+/* [FIX #3] CPDMA_RX_BUFFER_OFFSET: must be 0 for normal operation.
+ * If non-zero, CPDMA offsets the buffer pointer → writes frame to wrong address. */
+#define CPDMA_RX_BUFFER_OFFSET     (CPSW_CPDMA_BASE + 0x028u)
+/* ---------------------------------------------------------- */
 #define CPDMA_TX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x08Cu)
+/* [FIX #5] CPDMA_EOI_VECTOR: write after RX completion to clear interrupt state.
+ * Without EOI, CPDMA may not process subsequent frames in polling mode.
+ * TRM §14.3.1.2: value 1 = RX EOI, value 2 = TX EOI. */
+#define CPDMA_EOI_VECTOR           (CPSW_CPDMA_BASE + 0x094u)
+#define CPDMA_EOI_RX               1u
+/* ---------------------------------------------------------- */
 #define CPDMA_RX_INTMASK_CLEAR     (CPSW_CPDMA_BASE + 0x0ACu)
+#define CPDMA_DMASTATUS            (CPSW_CPDMA_BASE + 0x024u)
+/* DMASTATUS bits — TRM Table 14-38 */
+#define DMASTATUS_IDLE             (1u << 31)  /* Both TX and RX idle */
+#define DMASTATUS_RX_ERR_CODE_SHIFT 13u
+#define DMASTATUS_RX_ERR_MASK      (0xFu << 13u)
+#define DMASTATUS_RX_HOST_ERR      (1u << 13u) /* Error code 1 = 0x2000 */
 #define CPDMA_SOFT_RESET_BIT       (1u << 0)
 #define CPDMA_TX_EN                (1u << 0)
 #define CPDMA_RX_EN                (1u << 0)
+
+/* ============================================================
+ * [FIX #4] CPSW_WR — Wrapper / Interrupt Pacing
+ * ------------------------------------------------------------
+ * In polling mode there is no EOI write to CPSW_WR.
+ * If interrupt pacing is enabled (e.g. left by U-Boot),
+ * CPDMA stalls waiting for an ack that never comes.
+ * Fix: clear C0_TX_EN / C0_RX_EN to disable pacing.
+ * TRM §14.3.4
+ * ============================================================ */
+#define CPSW_WR_BASE                0x4A101200u
+#define CPSW_WR_C0_TX_EN           (CPSW_WR_BASE + 0x02Cu)
+#define CPSW_WR_C0_RX_EN           (CPSW_WR_BASE + 0x030u)
+/* ---------------------------------------------------------- */
 
 /* ============================================================
  * STATERAM — Head/Completion Descriptor Pointers
@@ -173,12 +209,18 @@ static int cpsw_clock_verify(void)
 
 static void cpsw_pinmux_init(void)
 {
+    /* [FIX #2] Force MII mode — U-Boot may leave GMII_SEL in RGMII/RMII.
+     * Must be set FIRST before any pin config takes effect. */
+    mmio_write32(CONF_GMII_SEL, GMII1_SEL_MII);
+
     mmio_write32(CONF_MII1_TX_EN,  PIN_TX);
     mmio_write32(CONF_MII1_TXD3,   PIN_TX);
     mmio_write32(CONF_MII1_TXD2,   PIN_TX);
     mmio_write32(CONF_MII1_TXD1,   PIN_TX);
     mmio_write32(CONF_MII1_TXD0,   PIN_TX);
-    mmio_write32(CONF_MII1_TX_CLK, PIN_TX);
+    /* [FIX #6] TX_CLK is driven by PHY in MII mode — must be INPUT (PIN_RX).
+     * Setting as output conflicts with PHY clock driver → TX broken. */
+    mmio_write32(CONF_MII1_TX_CLK, PIN_RX);
     mmio_write32(CONF_MII1_RX_DV,  PIN_RX);
     mmio_write32(CONF_MII1_RX_ER,  PIN_RX);
     mmio_write32(CONF_MII1_RXD3,   PIN_RX);
@@ -219,10 +261,23 @@ static int cpsw_cpdma_init(void)
         mmio_write32(STATERAM_RX0_CP  + (uint32_t)(i * 4), 0);
     }
 
+    /* [FIX #3] Clear RX buffer offset — must be 0 for normal operation */
+    mmio_write32(CPDMA_RX_BUFFER_OFFSET, 0);
+
     mmio_write32(CPDMA_TX_INTMASK_CLEAR, 0xFFu);
     mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0xFFu);
+
+    /* [FIX #4] Disable CPSW_WR interrupt pacing — polling mode has no EOI ack */
+    mmio_write32(CPSW_WR_C0_TX_EN, 0);
+    mmio_write32(CPSW_WR_C0_RX_EN, 0);
+
+    /* [FIX #1] Enable TX only here.
+     * RX_CONTROL must NOT be enabled until after HDP is kicked in cpsw_bd_init().
+     * If RX is enabled with HDP=0, any arriving frame triggers RX_HOST_ERR
+     * (DMASTATUS=0x2000, error code 1: SOP ownership bit not set). */
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
-    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    /* RX_CONTROL enabled in cpsw_bd_init() after HDP kick */
+
     uart_printf("[CPSW] CPDMA init done\n");
     return 0;
 }
@@ -266,13 +321,81 @@ static void cpsw_bd_init(void)
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
+    /* [FIX #1] Kick HDP first, then enable RX_CONTROL.
+     * CPDMA reads HDP immediately when RX is enabled.
+     * If HDP=0 at that moment → RX_HOST_ERR (DMASTATUS=0x2000).
+     * Correct order: arm BD → kick HDP → enable RX. */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+
     uart_printf("[CPSW] BD init done, RX armed\n");
 }
 
 /* ============================================================
- * Public functions
+ * [FIX] CPDMA RX Error Recovery
+ * ------------------------------------------------------------
+ * TRM §14.3.1.4: When RX_HOST_ERR occurs, CPDMA halts the
+ * RX channel. Recovery requires soft reset + re-init.
+ *
+ * Isolation guarantee — this function does NOT touch:
+ *   - PHY layer (mdio.c): MDIO/PHY registers are independent
+ *     of CPDMA. PHY link state is preserved.
+ *   - MAC sliver (SL1_MACCONTROL): MAC keeps running during
+ *     CPDMA reset. RXGOODFRAMES continues to increment.
+ *   - ALE: bypass mode and port forward state preserved.
+ *   - TX path: TX BD and TX HDP are re-cleared but TX channel
+ *     is immediately re-enabled, so TX is briefly paused only.
+ *
+ * Only CPDMA state machine is reset (0x4A100800 region).
  * ============================================================ */
+static void cpsw_rx_recover(void)
+{
+    uart_printf("[CPSW] RX_HOST_ERR (DMASTATUS=0x%08x) — recovering\n",
+                mmio_read32(CPDMA_DMASTATUS));
+
+    /* 1. Disable both channels before reset */
+    mmio_write32(CPDMA_RX_CONTROL, 0);
+    mmio_write32(CPDMA_TX_CONTROL, 0);
+
+    /* 2. Soft reset CPDMA — clears error state machine
+     * TRM §14.3.1.4: "The host can recover by performing a
+     * soft reset of the CPDMA" */
+    mmio_write32(CPDMA_SOFT_RESET, CPDMA_SOFT_RESET_BIT);
+    if (wait_bit_clear(CPDMA_SOFT_RESET, CPDMA_SOFT_RESET_BIT, RESET_TIMEOUT) != 0)
+        uart_printf("[CPSW] CPDMA reset timeout in recovery\n");
+
+    /* 3. Re-clear all HDP/CP — stale values cause crash on restart */
+    for (int i = 0; i < 8; i = i + 1) {
+        mmio_write32(STATERAM_TX0_HDP + (uint32_t)(i * 4), 0);
+        mmio_write32(STATERAM_RX0_HDP + (uint32_t)(i * 4), 0);
+        mmio_write32(STATERAM_TX0_CP  + (uint32_t)(i * 4), 0);
+        mmio_write32(STATERAM_RX0_CP  + (uint32_t)(i * 4), 0);
+    }
+
+    /* 4. Re-apply CPDMA config */
+    mmio_write32(CPDMA_RX_BUFFER_OFFSET, 0);
+    mmio_write32(CPDMA_TX_INTMASK_CLEAR, 0xFFu);
+    mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0xFFu);
+    mmio_write32(CPSW_WR_C0_TX_EN, 0);
+    mmio_write32(CPSW_WR_C0_RX_EN, 0);
+
+    /* 5. Re-enable TX */
+    mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
+
+    /* 6. Re-arm RX BD */
+    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+
+    /* 7. Kick HDP then enable RX — same order as initial init */
+    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+
+    uart_printf("[CPSW] Recovery done, DMASTATUS=0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS));
+}
 
 int cpsw_init(void)
 {
@@ -341,6 +464,30 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
 
 void cpsw_rx_poll(void)
 {
+    /* ----------------------------------------------------------
+     * [FIX] Detect and recover from RX_HOST_ERR
+     * ----------------------------------------------------------
+     * DMASTATUS bit 13 set = RX_HOST_ERR: CPDMA halted channel.
+     * Root cause: CPDMA read BD before CPU write propagated
+     * through L3/L4 interconnect to CPPI_RAM, saw OWNER=0.
+     *
+     * Recovery: soft reset CPDMA + re-arm BD + re-enable RX.
+     * PHY/MAC/ALE are NOT touched — only CPDMA state machine.
+     *
+     * Limit to 3 retries to avoid infinite loop if hardware
+     * is permanently broken.
+     * ---------------------------------------------------------- */
+    static uint8_t recover_count = 0;
+    uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
+    if (dmastat & DMASTATUS_RX_HOST_ERR) {
+        if (recover_count < 3) {
+            recover_count = recover_count + 1;
+            cpsw_rx_recover();
+        }
+        return;
+    }
+    recover_count = 0;  /* Reset counter on clean state */
+
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
         return;  /* DMA hasn't filled this BD yet */
@@ -352,6 +499,11 @@ void cpsw_rx_poll(void)
 
     /* Ack completed BD to CPDMA */
     mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+
+    /* [FIX #5] Write EOI after acking CP.
+     * TRM §14.3.1.2: required in polling mode to clear CPDMA interrupt state.
+     * Without this, CPDMA may not accept the next HDP kick. */
+    mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
 
     /* Re-arm RX BD and restart DMA — single BD model: always restart */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
