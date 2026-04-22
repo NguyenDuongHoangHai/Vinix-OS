@@ -103,6 +103,25 @@ void kernel_main(void)
         cpsw_get_mac(mac);
         ether_init(mac);
     }
+
+    /* ------------------------------------------------
+     * Layer 3 Smoke Test: verify ether_tx() hoạt động
+     * ------------------------------------------------
+     * Gửi 1 frame broadcast với EtherType=0x9000 (test).
+     * Dùng Wireshark trên laptop filter: eth.type == 0x9000
+     * Nếu thấy frame → ether_tx() + CPDMA + MAC + PHY OK.
+     * ------------------------------------------------ */
+    {
+        static const uint8_t bcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+        /* Payload: "ETHOK" + MAC của BBB */
+        uint8_t msg[12];
+        msg[0]='E'; msg[1]='T'; msg[2]='H';
+        msg[3]='O'; msg[4]='K'; msg[5]=0;
+        cpsw_get_mac(msg + 6);  /* append BBB MAC for identification */
+        int r = ether_tx(bcast, 0x9000, msg, 12);
+        uart_printf("[ETH] smoke test tx: %s\n", (r == 0) ? "OK" : "FAIL");
+        uart_printf("[ETH] Wireshark filter: eth.type == 0x9000\n");
+    }
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
