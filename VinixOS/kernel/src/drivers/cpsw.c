@@ -107,10 +107,15 @@
 #define BD_OFF_BUFLEN    8u
 #define BD_OFF_FLAGS    12u
 
-#define BD_OWNER  (1u << 31)
-#define BD_EOQ    (1u << 30)
-#define BD_SOP    (1u << 27)
-#define BD_EOP    (1u << 26)
+/* BD flag bits — verified against Linux davinci_cpdma.c
+ * Linux: SOP=BIT(31), EOP=BIT(30), OWNER=BIT(29), EOQ=BIT(28)
+ * Previous VinixOS had OWNER=bit31, SOP=bit27, EOP=bit26 — WRONG!
+ * That caused CPDMA to see OWNER=0 at bit29 → DMASTATUS=0x2000
+ * "Ownership bit not set" error on every RX enable. */
+#define BD_SOP    (1u << 31) /* Start of packet */
+#define BD_EOP    (1u << 30) /* End of packet */
+#define BD_OWNER  (1u << 29) /* 1 = owned by DMA, 0 = owned by CPU */
+#define BD_EOQ    (1u << 28) /* DMA sets when next=0 and chain stalls */
 
 /* ============================================================
  * MAC Sliver — CPGMAC_SL1
