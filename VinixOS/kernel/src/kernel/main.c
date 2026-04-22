@@ -48,6 +48,23 @@ extern void sync_selftest(void);
 #endif
 /* end Hai Nguyen                                      */
 /* ================================================== */
+
+/* ============================================================
+ * Layer 3 RX Test Handlers
+ * Temporary handlers để verify ether_rx() dispatch hoạt động.
+ * Sẽ được thay bằng arp_rx() và ip_rx() khi implement Layer 4.
+ * ============================================================ */
+static void ether_test_arp_rx(const uint8_t *payload, uint16_t len)
+{
+    (void)payload;
+    uart_printf("[ETH-TEST] RX ARP frame len=%u — ether_rx dispatch OK\n", len);
+}
+
+static void ether_test_ipv4_rx(const uint8_t *payload, uint16_t len)
+{
+    (void)payload;
+    uart_printf("[ETH-TEST] RX IPv4 frame len=%u — ether_rx dispatch OK\n", len);
+}
 /* ============================================================
  * User Space Payload (Defined in payload.S)
  * ============================================================ */
@@ -122,6 +139,16 @@ void kernel_main(void)
         uart_printf("[ETH] smoke test tx: %s\n", (r == 0) ? "OK" : "FAIL");
         uart_printf("[ETH] Wireshark filter: eth.type == 0x9000\n");
     }
+
+    /* ------------------------------------------------
+     * Layer 3 RX Test: register test handlers
+     * ------------------------------------------------
+     * Khi laptop gửi ARP hoặc ping → handler được gọi.
+     * Log: [ETH-TEST] RX ARP frame / RX IPv4 frame
+     * Nếu thấy log → ether_rx() dispatch hoạt động.
+     * ------------------------------------------------ */
+    ether_set_arp_handler(ether_test_arp_rx);
+    ether_set_ipv4_handler(ether_test_ipv4_rx);
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
