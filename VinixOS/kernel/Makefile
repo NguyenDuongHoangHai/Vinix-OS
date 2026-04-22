@@ -43,7 +43,7 @@ OBJS = $(ASM_OBJ) $(C_OBJ)
 
 C_OBJ += $(BUILD_DIR)/mdio.o
 C_OBJ += $(BUILD_DIR)/cpsw.o
-C_OBJ += $(BUILD_DIR)/netcore.o
+C_OBJ += $(BUILD_DIR)/ether.o
 
 # Flags
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
@@ -169,7 +169,7 @@ $(BUILD_DIR)/mdio_test.o: $(TESTCASE_L1)/mdio_test.c | $(BUILD_DIR)
 $(BUILD_DIR)/cpsw.o: $(SRC)/drivers/cpsw.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/netcore.o: $(SRC)/drivers/netcore.c | $(BUILD_DIR)
+$(BUILD_DIR)/ether.o: $(SRC)/drivers/ether.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 # end Hai Nguyen
 # ==================================================
