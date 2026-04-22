@@ -316,6 +316,21 @@ static void cpsw_bd_init(void)
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
     /* ----------------------------------------------------------
+     * [DIAGNOSTIC #6] Memory Barrier Before HDP Kick
+     * ----------------------------------------------------------
+     * Đảm bảo BD write hoàn thành trước khi CPDMA đọc.
+     * DSB: Data Synchronization Barrier
+     * DMB: Data Memory Barrier
+     * ---------------------------------------------------------- */
+    __asm__ volatile("dsb" ::: "memory");
+    __asm__ volatile("dmb" ::: "memory");
+    
+    /* Verify BD write completed */
+    uint32_t verify_flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+    uart_printf("[CPSW] BD FLAGS after barrier: 0x%08x\n", verify_flags);
+    /* ---------------------------------------------------------- */
+
+    /* ----------------------------------------------------------
      * [FIX] Enable Statistics Port 1 — TRM §14.4.6
      * ----------------------------------------------------------
      * Per TRM: "Configure the Statistics Port Enable register"
@@ -341,7 +356,22 @@ static void cpsw_bd_init(void)
      * khi có frame đến → RX_HOST_ERR.
      * ---------------------------------------------------------- */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    
+    /* ----------------------------------------------------------
+     * [DIAGNOSTIC #7] Delay Before RX Enable
+     * ----------------------------------------------------------
+     * Cho CPDMA thời gian settle sau khi kick HDP
+     * ---------------------------------------------------------- */
+    uart_printf("[CPSW] HDP kicked, waiting 10ms before RX enable...\n");
+    for (volatile int i = 0; i < 100000; i++);  /* ~10ms delay */
+    
+    uart_printf("[CPSW] DMASTATUS before RX enable = 0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS));
+    
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    
+    uart_printf("[CPSW] DMASTATUS after RX enable = 0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS));
     /* ---------------------------------------------------------- */
 
     uart_printf("[CPSW] BD init done, RX armed\n");
@@ -434,12 +464,62 @@ void cpsw_rx_poll(void)
     /* Dump comprehensive state every 1000 calls — ~10s at 10ms/tick */
     if (call_count % 1000 == 0) {
         uart_printf("[CPSW] === RX DIAGNOSTIC #%u ===\n", call_count);
-        uart_printf("[CPSW] BD_FLAGS=0x%08x  DMASTATUS=0x%08x\n",
-                    mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
-                    mmio_read32(CPDMA_DMASTATUS));
-        uart_printf("[CPSW] RX0_HDP=0x%08x  RX0_CP=0x%08x\n",
-                    mmio_read32(STATERAM_RX0_HDP),
+        
+        /* ----------------------------------------------------------
+         * [DIAGNOSTIC #1] BD Content Verification
+         * ----------------------------------------------------------
+         * Đọc tất cả 4 fields của BD để verify không bị corrupt
+         * ---------------------------------------------------------- */
+        uart_printf("[CPSW] BD @ 0x%08x:\n", RX_BD_PA);
+        uint32_t bd_next   = mmio_read32(RX_BD_PA + BD_OFF_NEXT);
+        uint32_t bd_bufptr = mmio_read32(RX_BD_PA + BD_OFF_BUFPTR);
+        uint32_t bd_buflen = mmio_read32(RX_BD_PA + BD_OFF_BUFLEN);
+        uint32_t bd_flags  = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+        
+        uart_printf("  NEXT   = 0x%08x\n", bd_next);
+        uart_printf("  BUFPTR = 0x%08x (expect 0x%08x)\n", bd_bufptr, RX_BUF_PA);
+        uart_printf("  BUFLEN = 0x%08x (expect 0x%08x)\n", bd_buflen, CPSW_FRAME_MAXLEN);
+        uart_printf("  FLAGS  = 0x%08x (OWNER=%u SOP=%u EOP=%u)\n",
+                    bd_flags,
+                    (bd_flags >> 31) & 1,
+                    (bd_flags >> 27) & 1,
+                    (bd_flags >> 26) & 1);
+        /* ---------------------------------------------------------- */
+        
+        /* ----------------------------------------------------------
+         * [DIAGNOSTIC #2] DMASTATUS Error Code Decode
+         * ----------------------------------------------------------
+         * TRM Table 14-38: RX_HOST_ERR_CODE bits [16:13]
+         * ---------------------------------------------------------- */
+        uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
+        uint32_t rx_err_code = (dmastat >> 13) & 0xF;
+        
+        uart_printf("[CPSW] DMASTATUS = 0x%08x\n", dmastat);
+        uart_printf("  RX_HOST_ERR_CODE = %u ", rx_err_code);
+        
+        switch (rx_err_code) {
+            case 0: uart_printf("(No error)\n"); break;
+            case 1: uart_printf("(SOP buffer ownership bit not set)\n"); break;
+            case 2: uart_printf("(Ownership bit not set in non-SOP buffer)\n"); break;
+            case 3: uart_printf("(Zero buffer pointer)\n"); break;
+            case 4: uart_printf("(Zero buffer length on non-EOP)\n"); break;
+            case 5: uart_printf("(SOP buffer length zero)\n"); break;
+            default: uart_printf("(Reserved/Unknown)\n"); break;
+        }
+        
+        uart_printf("  IDLE = %u\n", (dmastat >> 31) & 1);
+        /* ---------------------------------------------------------- */
+        
+        /* ----------------------------------------------------------
+         * [DIAGNOSTIC #4] CPDMA Channel State
+         * ---------------------------------------------------------- */
+        uart_printf("[CPSW] CPDMA Channel State:\n");
+        uart_printf("  RX0_HDP = 0x%08x (expect 0x%08x)\n",
+                    mmio_read32(STATERAM_RX0_HDP), RX_BD_PA);
+        uart_printf("  RX0_CP  = 0x%08x (expect 0x0 if no completion)\n",
                     mmio_read32(STATERAM_RX0_CP));
+        /* ---------------------------------------------------------- */
+        
         uart_printf("[CPSW] MACCTRL=0x%08x  ALE_CTRL=0x%08x\n",
                     mmio_read32(SL1_MACCONTROL),
                     mmio_read32(ALE_CONTROL));
@@ -451,6 +531,7 @@ void cpsw_rx_poll(void)
                     mmio_read32(CPDMA_TX_CONTROL));
         uart_printf("[CPSW] SS_STAT_PORT_EN=0x%08x\n",
                     mmio_read32(SS_STAT_PORT_EN));
+        
         /* ----------------------------------------------------------
          * [DIAGNOSTIC] MAC Statistics — verify PHY → MAC path
          * ----------------------------------------------------------
