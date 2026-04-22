@@ -317,15 +317,15 @@ static void cpsw_rx_isr(void *data)
 
 static void cpsw_rx_irq_init(void)
 {
-    /* Full CPDMA reset before enabling RX.
-     * This clears any stale state from the initial cpsw_bd_init() call.
-     * After reset, we re-arm BD and enable RX fresh. */
+    /* Stop MAC from receiving frames during CPDMA re-init.
+     * This prevents frames arriving while CPDMA is being reset,
+     * which would cause RX_HOST_ERR immediately after enable. */
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX);  /* Clear GMII_EN */
 
-    /* 1. Disable RX/TX */
+    /* Full CPDMA reset */
     mmio_write32(CPDMA_RX_CONTROL, 0);
     mmio_write32(CPDMA_TX_CONTROL, 0);
 
-    /* 2. Soft reset CPDMA */
     mmio_write32(CPDMA_SOFT_RESET, CPDMA_SOFT_RESET_BIT);
     {
         int t = RESET_TIMEOUT;
@@ -333,7 +333,7 @@ static void cpsw_rx_irq_init(void)
             t--;
     }
 
-    /* 3. Clear all HDP/CP */
+    /* Clear all HDP/CP */
     {
         int i;
         for (i = 0; i < 8; i++) {
@@ -344,40 +344,43 @@ static void cpsw_rx_irq_init(void)
         }
     }
 
-    /* 4. Re-apply config */
+    /* Re-apply config */
     mmio_write32(CPDMA_RX_BUFFER_OFFSET, 0);
     mmio_write32(CPDMA_TX_INTMASK_CLEAR, 0xFFu);
     mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0xFFu);
     mmio_write32(CPSW_WR_C0_TX_EN, 0);
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
 
-    /* 5. Re-arm RX BD fresh */
+    /* Re-arm RX BD */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
-    /* 6. Kick HDP */
+    /* Kick HDP */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
-    /* 7. Enable CPDMA RX interrupt */
+    /* Enable CPDMA RX interrupt */
     mmio_write32(CPDMA_RX_INTMASK_SET, 0x1u);
 
-    /* 8. Enable RX channel */
+    /* Enable RX channel */
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
 
-    /* 9. Enable CPSW_WR interrupt pacing */
+    /* Enable CPSW_WR interrupt pacing */
     mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
 
-    /* 10. Log state */
+    /* Re-enable MAC — now CPDMA is ready to receive */
+    mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN);
+
+    /* Log state */
     uart_printf("[CPSW] DMASTATUS after RX enable = 0x%08x\n",
                 mmio_read32(CPDMA_DMASTATUS));
     uart_printf("[CPSW] RX0_HDP = 0x%08x  BD_FLAGS = 0x%08x\n",
                 mmio_read32(STATERAM_RX0_HDP),
                 mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
 
-    /* 11. Register ISR */
+    /* Register ISR */
     irq_register_handler(IRQ_CPSW_RX, cpsw_rx_isr, 0);
     intc_enable_irq(IRQ_CPSW_RX);
 
