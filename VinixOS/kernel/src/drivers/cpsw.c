@@ -252,8 +252,21 @@ static int cpsw_cpdma_init(void)
     mmio_write32(CPSW_WR_C0_TX_EN, 0);
     mmio_write32(CPSW_WR_C0_RX_EN, 0);
 
+    /* ----------------------------------------------------------
+     * [FIX] Enable TX only — delay RX enable until after HDP kick
+     * ----------------------------------------------------------
+     * TRM §14.4.2: "The host enables packet reception on a given
+     * channel by writing the address of the first buffer descriptor
+     * to the channel's head descriptor pointer"
+     * 
+     * Nếu enable RX_CONTROL trước khi kick HDP, CPDMA sẽ cố đọc
+     * BD từ HDP=0 khi có frame đến → RX_HOST_ERR.
+     * 
+     * Thứ tự đúng: kick HDP → enable RX_CONTROL (trong cpsw_bd_init)
+     * ---------------------------------------------------------- */
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
-    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    /* RX_CONTROL sẽ được enable trong cpsw_bd_init() sau khi kick HDP */
+    /* ---------------------------------------------------------- */
 
     uart_printf("[CPSW] CPDMA TX_CTRL=0x%08x  RX_CTRL=0x%08x  DMASTATUS=0x%08x\n",
                 mmio_read32(CPDMA_TX_CONTROL),
@@ -295,7 +308,7 @@ static void cpsw_bd_init(void)
     mmio_write32(TX_BD_PA + BD_OFF_BUFLEN, 0);
     mmio_write32(TX_BD_PA + BD_OFF_FLAGS,  0);
 
-    /* RX BD: arm and kick HDP */
+    /* RX BD: arm */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
     mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
@@ -312,7 +325,25 @@ static void cpsw_bd_init(void)
     mmio_write32(SS_STAT_PORT_EN, SS_STAT_PORT_EN_P0 | SS_STAT_PORT_EN_P1);
     /* ---------------------------------------------------------- */
 
+    /* ----------------------------------------------------------
+     * [FIX] Kick HDP trước, enable RX_CONTROL sau
+     * ----------------------------------------------------------
+     * TRM §14.4.2: "The host enables packet reception on a given
+     * channel by writing the address of the first buffer descriptor
+     * to the channel's head descriptor pointer"
+     * 
+     * Thứ tự đúng:
+     * 1. Arm BD (set OWNER=1)
+     * 2. Kick HDP (write BD address)
+     * 3. Enable RX_CONTROL
+     * 
+     * Nếu enable RX_CONTROL trước khi kick HDP → CPDMA đọc HDP=0
+     * khi có frame đến → RX_HOST_ERR.
+     * ---------------------------------------------------------- */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
+    /* ---------------------------------------------------------- */
+
     uart_printf("[CPSW] BD init done, RX armed\n");
     uart_printf("[CPSW] DMASTATUS=0x%08x  RX0_HDP=0x%08x\n",
                 mmio_read32(CPDMA_DMASTATUS),
