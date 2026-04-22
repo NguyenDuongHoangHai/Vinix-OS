@@ -351,6 +351,12 @@ static void cpsw_rx_irq_init(void)
     mmio_write32(CPSW_WR_C0_TX_EN, 0);
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
 
+    /* Clear DMASTATUS error bits — these persist across soft reset!
+     * TRM §14.3.1.4: write 1 to clear RX_HOST_ERR bits [16:13] */
+    mmio_write32(CPDMA_DMASTATUS, 0x0001E000u);
+    uart_printf("[CPSW] DMASTATUS after clear = 0x%08x\n",
+                mmio_read32(CPDMA_DMASTATUS));
+
     /* Re-arm RX BD */
     mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
     mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
