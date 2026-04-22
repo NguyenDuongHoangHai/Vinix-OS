@@ -428,35 +428,59 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
  * ============================================================ */
 void cpsw_rx_poll(void)
 {
-    /* Only process if ISR signaled a frame is ready */
-    if (!s_rx_pending)
-        return;
-
-    s_rx_pending = 0;
-
-    uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
-    if (flags & BD_OWNER) {
-        /* BD still owned by DMA — re-enable interrupt and wait */
-        mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
-        return;
+    /* Primary path: ISR signaled a frame is ready */
+    if (s_rx_pending) {
+        s_rx_pending = 0;
+        goto process_frame;
     }
 
-    uint16_t len = (uint16_t)(flags & 0xFFFFu);
+    /* Fallback path: ISR not fired, check BD directly.
+     * This handles the case where IRQ routing is not working yet.
+     * If BD_FLAGS OWNER=0, a frame arrived but ISR was not called. */
+    {
+        uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
+        if (dmastat & (1u << 13)) {
+            /* RX_HOST_ERR — should not happen with interrupt mode */
+            uart_printf("[CPSW] WARN: RX_HOST_ERR in poll, DMASTATUS=0x%08x\n",
+                        dmastat);
+            return;
+        }
+    }
 
-    if (s_rx_cb && len > 0)
-        s_rx_cb((const uint8_t *)RX_BUF_PA, len);
+    {
+        uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+        if (flags & BD_OWNER)
+            return;  /* No frame ready */
 
-    /* Ack completed BD */
-    mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+        /* Frame arrived but ISR was not called — log and process */
+        uart_printf("[CPSW] WARN: frame received without ISR (IRQ not working)\n");
+        /* Write EOI manually since ISR didn't */
+        mmio_write32(CPSW_WR_C0_RX_EN, 0);
+        mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
+    }
 
-    /* Re-arm RX BD */
-    mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
-    mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
-                 BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
-    mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+process_frame:
+    {
+        uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+        if (flags & BD_OWNER) {
+            mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+            return;
+        }
 
-    /* Re-enable interrupt pacing — ready for next frame */
-    mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+        uint16_t len = (uint16_t)(flags & 0xFFFFu);
+
+        if (s_rx_cb && len > 0)
+            s_rx_cb((const uint8_t *)RX_BUF_PA, len);
+
+        mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+
+        mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                     BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+        mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+    }
 }
