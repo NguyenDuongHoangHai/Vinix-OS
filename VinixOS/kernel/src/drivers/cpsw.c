@@ -57,6 +57,18 @@
 #define SS_STAT_PORT_EN_P1         (1u << 1)
 
 /* ============================================================
+ * CPSW_STATS — Network Statistics — AM335x TRM Ch.14 §14.5.4
+ * Base: 0x4A100900
+ * ============================================================ */
+#define CPSW_STATS_BASE             0x4A100900u
+#define STATS_RXGOODFRAMES         (CPSW_STATS_BASE + 0x00u)
+#define STATS_RXBROADCASTFRAMES    (CPSW_STATS_BASE + 0x04u)
+#define STATS_RXMULTICASTFRAMES    (CPSW_STATS_BASE + 0x08u)
+#define STATS_RXCRCERRORS          (CPSW_STATS_BASE + 0x10u)
+#define STATS_RXOVERSIZEDFRAMES    (CPSW_STATS_BASE + 0x18u)
+#define STATS_RXUNDERSIZEDFRAMES   (CPSW_STATS_BASE + 0x20u)
+
+/* ============================================================
  * CPDMA — DMA Controller — AM335x TRM Ch.14
  * ============================================================ */
 #define CPSW_CPDMA_BASE             0x4A100800u
@@ -290,6 +302,16 @@ static void cpsw_bd_init(void)
     mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
+    /* ----------------------------------------------------------
+     * [FIX] Enable Statistics Port 1 — TRM §14.4.6
+     * ----------------------------------------------------------
+     * Per TRM: "Configure the Statistics Port Enable register"
+     * Phải enable statistics port trước khi đọc STATS registers.
+     * Nếu không enable → statistics không được update.
+     * ---------------------------------------------------------- */
+    mmio_write32(SS_STAT_PORT_EN, SS_STAT_PORT_EN_P0 | SS_STAT_PORT_EN_P1);
+    /* ---------------------------------------------------------- */
+
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
     uart_printf("[CPSW] BD init done, RX armed\n");
     uart_printf("[CPSW] DMASTATUS=0x%08x  RX0_HDP=0x%08x\n",
@@ -367,18 +389,52 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
     s_rx_cb = cb;
 }
 
+/* ----------------------------------------------------------
+ * [DIAGNOSTIC] Comprehensive RX path diagnostic
+ * ----------------------------------------------------------
+ * Vấn đề: Wireshark confirm ARP ra wire, BBB không nhận.
+ * Cần dump toàn bộ CPSW/CPDMA/ALE state để tìm root cause.
+ * ---------------------------------------------------------- */
 void cpsw_rx_poll(void)
 {
     static uint32_t call_count = 0;
     call_count = call_count + 1;
 
-    /* Dump state every 10000 calls to confirm poll is running */
-    if (call_count % 10000 == 0)
-        uart_printf("[CPSW] poll#%u  FLAGS=0x%08x  DMASTAT=0x%08x  HDP=0x%08x\n",
-                    call_count,
+    /* Dump comprehensive state every 1000 calls — ~10s at 10ms/tick */
+    if (call_count % 1000 == 0) {
+        uart_printf("[CPSW] === RX DIAGNOSTIC #%u ===\n", call_count);
+        uart_printf("[CPSW] BD_FLAGS=0x%08x  DMASTATUS=0x%08x\n",
                     mmio_read32(RX_BD_PA + BD_OFF_FLAGS),
-                    mmio_read32(CPDMA_DMASTATUS),
-                    mmio_read32(STATERAM_RX0_HDP));
+                    mmio_read32(CPDMA_DMASTATUS));
+        uart_printf("[CPSW] RX0_HDP=0x%08x  RX0_CP=0x%08x\n",
+                    mmio_read32(STATERAM_RX0_HDP),
+                    mmio_read32(STATERAM_RX0_CP));
+        uart_printf("[CPSW] MACCTRL=0x%08x  ALE_CTRL=0x%08x\n",
+                    mmio_read32(SL1_MACCONTROL),
+                    mmio_read32(ALE_CONTROL));
+        uart_printf("[CPSW] ALE_P0=0x%08x  ALE_P1=0x%08x\n",
+                    mmio_read32(ALE_PORTCTL0),
+                    mmio_read32(ALE_PORTCTL1));
+        uart_printf("[CPSW] RX_CTRL=0x%08x  TX_CTRL=0x%08x\n",
+                    mmio_read32(CPDMA_RX_CONTROL),
+                    mmio_read32(CPDMA_TX_CONTROL));
+        uart_printf("[CPSW] SS_STAT_PORT_EN=0x%08x\n",
+                    mmio_read32(SS_STAT_PORT_EN));
+        /* ----------------------------------------------------------
+         * [DIAGNOSTIC] MAC Statistics — verify PHY → MAC path
+         * ----------------------------------------------------------
+         * RXGOODFRAMES: số frame MAC nhận được từ PHY (không lỗi)
+         * RXCRCERRORS: số frame bị CRC error
+         * Nếu RXGOODFRAMES > 0 → MAC nhận được frame từ PHY
+         * Nếu RXGOODFRAMES = 0 → frame không đến MAC (PHY/pinmux issue)
+         * ---------------------------------------------------------- */
+        uart_printf("[CPSW] STATS: RXGOOD=%u  RXCRC=%u  RXOVER=%u  RXUNDER=%u\n",
+                    mmio_read32(STATS_RXGOODFRAMES),
+                    mmio_read32(STATS_RXCRCERRORS),
+                    mmio_read32(STATS_RXOVERSIZEDFRAMES),
+                    mmio_read32(STATS_RXUNDERSIZEDFRAMES));
+        /* ---------------------------------------------------------- */
+    }
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (flags & BD_OWNER)
@@ -411,3 +467,4 @@ void cpsw_rx_poll(void)
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 }
+/* ---------------------------------------------------------- */
