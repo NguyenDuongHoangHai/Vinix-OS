@@ -127,7 +127,8 @@ void kernel_main(void)
     omap_intc_driver_register();
     irq_init();
     uart_enable_rx_interrupt();
-    cpsw_rx_irq_enable();  /* Enable interrupt-driven RX after IRQ framework ready */
+    /* NOTE: cpsw_rx_irq_enable() is called AFTER irq_enable() below
+     * to ensure CPU IRQ is enabled before CPDMA can fire IRQ 41 */
 
     /* 1.6 Initialize VFS and mount FAT32 rootfs from SD card */
     uart_printf("[BOOT] Initializing Virtual File System...\n");
@@ -209,6 +210,7 @@ void kernel_main(void)
     uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
 
     irq_enable();
+    cpsw_rx_irq_enable();  /* Enable RX IRQ AFTER CPU IRQ enabled — prevents missed EOI */
     scheduler_start();
 
     /* Should never reach here */
