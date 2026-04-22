@@ -27,4 +27,7 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len));
 /* Call from idle task. Invokes rx callback if a frame is ready. */
 void cpsw_rx_poll(void);
 
+/* Call after irq_init() to enable interrupt-driven RX. */
+void cpsw_rx_irq_enable(void);
+
 #endif /* CPSW_H */

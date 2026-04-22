@@ -127,6 +127,7 @@ void kernel_main(void)
     omap_intc_driver_register();
     irq_init();
     uart_enable_rx_interrupt();
+    cpsw_rx_irq_enable();  /* Enable interrupt-driven RX after IRQ framework ready */
 
     /* 1.6 Initialize VFS and mount FAT32 rootfs from SD card */
     uart_printf("[BOOT] Initializing Virtual File System...\n");
