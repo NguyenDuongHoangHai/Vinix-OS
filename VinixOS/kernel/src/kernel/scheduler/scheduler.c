@@ -380,3 +380,11 @@ int scheduler_get_tasks(void *buf, uint32_t max_count)
     
     return count;
 }
+
+/* jiffies is defined in sleep.c — incremented every timer tick (10ms) */
+extern volatile uint32_t jiffies;
+
+uint32_t scheduler_get_tick(void)
+{
+    return jiffies;
+}

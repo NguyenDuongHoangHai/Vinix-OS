@@ -51,4 +51,7 @@ int scheduler_add_forked(struct task_struct *task);
 /* Release a slot after wait() reaps a zombie. */
 void scheduler_release_slot(uint32_t idx);
 
+/* Returns current tick count (jiffies, incremented every 10ms). */
+uint32_t scheduler_get_tick(void);
+
 #endif /* SCHEDULER_H */
