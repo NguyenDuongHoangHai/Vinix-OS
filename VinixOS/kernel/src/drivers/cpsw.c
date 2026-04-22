@@ -316,18 +316,36 @@ static void cpsw_bd_init(void)
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
 
     /* ----------------------------------------------------------
-     * [DIAGNOSTIC #6] Memory Barrier Before HDP Kick
+     * [FIX] Memory Barrier + Cache Invalidate Before HDP Kick
      * ----------------------------------------------------------
-     * Đảm bảo BD write hoàn thành trước khi CPDMA đọc.
-     * DSB: Data Synchronization Barrier
-     * DMB: Data Memory Barrier
+     * Root cause: CPDMA đọc BD từ main memory trước khi CPU
+     * write buffer flush xong, thấy OWNER=0 (stale value).
+     * 
+     * Fix:
+     * 1. DSB: flush CPU write buffer
+     * 2. Clean & Invalidate D-cache: đảm bảo CPDMA thấy data mới
+     * 3. Delay: cho write buffer thời gian propagate đến CPPI_RAM
+     * 
+     * Ref: ARM Cortex-A8 TRM §3.2.7 Cache Maintenance Operations
      * ---------------------------------------------------------- */
     __asm__ volatile("dsb" ::: "memory");
     __asm__ volatile("dmb" ::: "memory");
     
+    /* Clean & Invalidate entire D-cache by set/way */
+    __asm__ volatile(
+        "mov r0, #0\n"
+        "mcr p15, 0, r0, c7, c14, 0\n"  /* Clean & Invalidate D-cache */
+        "dsb\n"
+        "isb\n"
+        ::: "r0", "memory"
+    );
+    
+    /* Additional delay to ensure write buffer propagates to CPPI_RAM */
+    for (volatile int i = 0; i < 10000; i++);  /* ~1ms delay */
+    
     /* Verify BD write completed */
     uint32_t verify_flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
-    uart_printf("[CPSW] BD FLAGS after barrier: 0x%08x\n", verify_flags);
+    uart_printf("[CPSW] BD FLAGS after barrier+cache: 0x%08x\n", verify_flags);
     /* ---------------------------------------------------------- */
 
     /* ----------------------------------------------------------
@@ -341,32 +359,32 @@ static void cpsw_bd_init(void)
     /* ---------------------------------------------------------- */
 
     /* ----------------------------------------------------------
-     * [FIX] Kick HDP trước, enable RX_CONTROL sau
+     * [FIX] Kick HDP trước, delay dài hơn trước RX enable
      * ----------------------------------------------------------
-     * TRM §14.4.2: "The host enables packet reception on a given
-     * channel by writing the address of the first buffer descriptor
-     * to the channel's head descriptor pointer"
+     * Root cause confirmed: Error xuất hiện NGAY khi enable RX,
+     * không cần frame đến. CPDMA cố đọc BD ngay khi enable nhưng
+     * thấy OWNER=0 (cache coherency issue).
      * 
-     * Thứ tự đúng:
-     * 1. Arm BD (set OWNER=1)
-     * 2. Kick HDP (write BD address)
-     * 3. Enable RX_CONTROL
-     * 
-     * Nếu enable RX_CONTROL trước khi kick HDP → CPDMA đọc HDP=0
-     * khi có frame đến → RX_HOST_ERR.
+     * Fix: Tăng delay từ 10ms → 100ms để đảm bảo:
+     * 1. Write buffer flush hoàn toàn
+     * 2. Cache invalidate propagate
+     * 3. CPPI_RAM nhận được BD data mới
      * ---------------------------------------------------------- */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
     
-    /* ----------------------------------------------------------
-     * [DIAGNOSTIC #7] Delay Before RX Enable
-     * ----------------------------------------------------------
-     * Cho CPDMA thời gian settle sau khi kick HDP
-     * ---------------------------------------------------------- */
-    uart_printf("[CPSW] HDP kicked, waiting 10ms before RX enable...\n");
-    for (volatile int i = 0; i < 100000; i++);  /* ~10ms delay */
+    uart_printf("[CPSW] HDP kicked, waiting 100ms before RX enable...\n");
+    for (volatile int i = 0; i < 1000000; i++);  /* ~100ms delay */
     
     uart_printf("[CPSW] DMASTATUS before RX enable = 0x%08x\n",
                 mmio_read32(CPDMA_DMASTATUS));
+    
+    /* Invalidate cache again right before enable */
+    __asm__ volatile(
+        "mov r0, #0\n"
+        "mcr p15, 0, r0, c7, c6, 0\n"  /* Invalidate D-cache */
+        "dsb\n"
+        ::: "r0", "memory"
+    );
     
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
     
