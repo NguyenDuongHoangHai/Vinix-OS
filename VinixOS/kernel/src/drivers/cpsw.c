@@ -388,8 +388,8 @@ static void cpsw_rx_irq_init(void)
     /* Kick HDP */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
-    /* Enable CPDMA RX interrupt */
-    mmio_write32(CPDMA_RX_INTMASK_SET, 0x1u);
+    /* FIXED: Enable CPDMA RX interrupt - was masked! */
+    mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0x1u);
 
     /* Enable RX channel */
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
