@@ -308,7 +308,7 @@ static void cpsw_rx_isr(void *data)
 {
     (void)data;
     /* NO uart_printf in ISR — must be short */
-    mmio_write32(CPSW_WR_C0_RX_EN, 0);
+    /* FIXED: Don't disable RX - use interrupt pacing control instead */
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
     s_rx_pending = 1;
     
@@ -534,7 +534,7 @@ void cpsw_rx_poll(void)
 
         /* Frame arrived but ISR was not called — process silently */
         uart_printf("[CPSW] RX: Frame arrived without ISR (flags=0x%08x)\n", flags);
-        mmio_write32(CPSW_WR_C0_RX_EN, 0);
+        /* FIXED: Don't disable RX - only write EOI */
         mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
     }
 
@@ -543,7 +543,7 @@ process_frame:
         uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
         if (flags & BD_OWNER) {
             uart_printf("[CPSW] RX: BD still owned by CPDMA (flags=0x%08x)\n", flags);
-            mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+            /* FIXED: RX should remain enabled - no need to re-enable */
             return;
         }
 
@@ -566,8 +566,8 @@ process_frame:
                      BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
         mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
-        mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+        /* FIXED: RX should remain enabled - no need to re-enable */
         
-        uart_printf("[CPSW] RX: Frame processed, RX re-enabled\n");
+        uart_printf("[CPSW] RX: Frame processed successfully\n");
     }
 }
