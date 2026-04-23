@@ -214,9 +214,17 @@ static void arp_send_reply(uint32_t target_ip, const uint8_t target_mac[6])
     arp_print_ip(target_ip);
     uart_printf("\n");
     
+    uart_printf("[ARP] TX: target_mac=");
+    arp_print_mac(target_mac);
+    uart_printf(" my_mac=");
+    arp_print_mac(s_my_mac);
+    uart_printf("\n");
+    
     int ret = ether_tx(target_mac, ETHERTYPE_ARP, (uint8_t*)&pkt, ARP_PKT_LEN);
     if (ret != 0) {
         uart_printf("[ARP] ARP reply TX failed: %d\n", ret);
+    } else {
+        uart_printf("[ARP] ARP reply TX success\n");
     }
 }
 
