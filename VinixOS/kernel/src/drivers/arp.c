@@ -23,7 +23,7 @@
  * Static State
  * ============================================================ */
 
-static uint32_t s_my_ip = 0;
+uint32_t s_my_ip = 0;
 static uint8_t  s_my_mac[6] = {0};
 static arp_cache_entry_t s_cache[ARP_CACHE_SIZE];
 static uint32_t s_cache_timeout = 60; /* 60 seconds timeout */
@@ -78,17 +78,6 @@ static int cache_find_free(void)
     return 0;
 }
 
-static void cache_update_timeout(void)
-{
-    /* Simple timeout handling - mark expired entries as invalid */
-    for (int i = 0; i < ARP_CACHE_SIZE; i++) {
-        if (s_cache[i].valid && s_cache[i].timeout == 0) {
-            s_cache[i].valid = 0;
-        } else if (s_cache[i].valid) {
-            s_cache[i].timeout--;
-        }
-    }
-}
 
 /* ============================================================
  * Public API
