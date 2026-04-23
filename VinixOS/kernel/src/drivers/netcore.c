@@ -16,6 +16,8 @@
 
 #include "netcore.h"
 #include "arp.h"
+#include "ipv4.h"
+#include "icmp.h"
 #include "ether.h"
 #include "uart.h"
 #include "string.h"
@@ -35,8 +37,15 @@ void netcore_init(void)
     /* Initialize ARP subsystem */
     arp_init();
     
-    /* Register ARP handler with Ethernet layer */
+    /* Initialize IPv4 subsystem */
+    ipv4_init();
+    
+    /* Initialize ICMP subsystem */
+    icmp_init();
+    
+    /* Register handlers with Ethernet layer */
     ether_set_arp_handler(arp_rx);
+    ether_set_ipv4_handler(ipv4_rx);
     
     uart_printf("[NETCORE] initialized\n");
 }
@@ -87,15 +96,13 @@ int netcore_arp_resolve(uint32_t ip, uint8_t mac[6])
 
 int netcore_send(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len)
 {
-    /* TODO: Implement IPv4 routing and sending */
-    uart_printf("[NETCORE] send: dst=");
-    uart_printf("%u.%u.%u.%u",
-                (dst_ip >> 24) & 0xFF,
-                (dst_ip >> 16) & 0xFF,
-                (dst_ip >> 8) & 0xFF,
-                dst_ip & 0xFF);
-    uart_printf(" proto=%u len=%zu\n", protocol, len);
-    
-    /* For now, just return not implemented */
-    return -1;
+    /* Send via IPv4 */
+    return ipv4_tx(dst_ip, protocol, data, len);
+}
+
+int netcore_ping(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
+                 const void *data, size_t data_len)
+{
+    /* Send ICMP ping request */
+    return icmp_ping(dst_ip, identifier, sequence, data, data_len);
 }

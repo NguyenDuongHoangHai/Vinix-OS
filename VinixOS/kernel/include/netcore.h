@@ -38,4 +38,9 @@ int netcore_arp_resolve(uint32_t ip, uint8_t mac[6]);
 /* Returns 0 on success, -1 on error */
 int netcore_send(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len);
 
+/* Send ICMP ping request */
+/* Returns 0 on success, -1 on error */
+int netcore_ping(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
+                 const void *data, size_t data_len);
+
 #endif /* NETCORE_H */
