@@ -89,4 +89,7 @@ void arp_set_my_mac(const uint8_t mac[6]);
 /* Handle incoming ARP packet */
 void arp_rx(const uint8_t *payload, uint16_t len);
 
+/* External access to my IP (for netcore.c) */
+extern uint32_t s_my_ip;
+
 #endif /* ARP_H */

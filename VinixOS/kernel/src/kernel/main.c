@@ -152,7 +152,7 @@ void kernel_main(void)
         uint8_t mac[6];
         cpsw_get_mac(mac);
         arp_set_my_mac(mac);
-        arp_set_my_ip(0xc00a64a0);  /* 192.168.10.100 */
+        arp_set_my_ip(0xc0a80a64);  /* 192.168.10.100 */
     }
     netcore_init();
     /* end Hai Nguyen                                     */

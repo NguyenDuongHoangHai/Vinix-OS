@@ -39,6 +39,7 @@ static inline uint16_t bswap16(uint16_t v)
 
 static void arp_print_ip(uint32_t ip)
 {
+    /* IP is stored in network byte order (big-endian) */
     uart_printf("%u.%u.%u.%u",
                 (ip >> 24) & 0xFF,
                 (ip >> 16) & 0xFF,

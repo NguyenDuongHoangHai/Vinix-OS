@@ -72,7 +72,8 @@ int netcore_build_arp_request(uint8_t *buf, size_t len, uint32_t target_ip)
     arp->opcode     = 0x0100;  /* Request (big-endian) */
     
     memcpy(arp->sender_mac, my_mac, 6);
-    arp->sender_ip  = 0x640a8ac0;  /* 192.168.10.100 (big-endian) */
+    /* Get IP from ARP subsystem */
+    arp->sender_ip  = s_my_ip;  /* Use current IP setting */
     memset(arp->target_mac, 0, 6);
     arp->target_ip  = target_ip;    /* Already in big-endian format */
     
