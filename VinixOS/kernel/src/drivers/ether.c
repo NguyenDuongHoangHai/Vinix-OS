@@ -105,32 +105,47 @@ int ether_tx(const uint8_t dst_mac[ETH_ADDR_LEN],
 
 void ether_rx(const uint8_t *frame, uint16_t len)
 {
+    uart_printf("[ETH] RX: frame len=%u\n", len);
+    
     if (len < ETH_HEADER_LEN) {
         uart_printf("[ETH] rx: frame too short (%u), drop\n", len);
         return;
     }
 
     const eth_hdr_t *hdr = (const eth_hdr_t *)frame;
+    
+    uart_printf("[ETH] RX: dst=");
+    ether_mac_print(hdr->dst);
+    uart_printf(" src=");
+    ether_mac_print(hdr->src);
+    uart_printf(" type=0x%04x\n", bswap16(hdr->ethertype));
 
     /* Accept only frames for us or broadcast */
-    if (!ether_mac_eq(hdr->dst, s_mac) && !ether_mac_is_bcast(hdr->dst))
+    if (!ether_mac_eq(hdr->dst, s_mac) && !ether_mac_is_bcast(hdr->dst)) {
+        uart_printf("[ETH] RX: not for us, drop\n");
         return;
+    }
 
     uint16_t ethertype     = bswap16(hdr->ethertype);
     const uint8_t *payload = frame + ETH_HEADER_LEN;
     uint16_t plen          = (uint16_t)(len - ETH_HEADER_LEN);
 
     if (ethertype == ETHERTYPE_IPV4) {
+        uart_printf("[ETH] RX: IPv4 packet, len=%u\n", plen);
         if (s_ipv4_handler)
             s_ipv4_handler(payload, plen);
-        /* else: IPv4 handler not registered yet — silent drop */
+        else
+            uart_printf("[ETH] RX: IPv4 handler not registered\n");
 
     } else if (ethertype == ETHERTYPE_ARP) {
+        uart_printf("[ETH] RX: ARP packet, len=%u\n", plen);
         if (s_arp_handler)
             s_arp_handler(payload, plen);
-        /* else: ARP handler not registered yet — silent drop */
+        else
+            uart_printf("[ETH] RX: ARP handler not registered\n");
+    } else {
+        uart_printf("[ETH] RX: Unknown ethertype 0x%04x, drop\n", ethertype);
     }
-    /* Unknown EtherType: silent drop */
 }
 
 /* ============================================================
