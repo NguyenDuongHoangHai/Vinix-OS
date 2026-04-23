@@ -45,31 +45,12 @@ extern void sync_selftest(void);
 #include "ether.h"
 #include "netcore.h"
 #include "arp.h"
-#ifdef ENABLE_LAYER1_TEST
-#include "mdio_test.h"
-#endif
 /* end Hai Nguyen                                      */
 /* ================================================== */
 
-/* ============================================================
- * Layer 3 RX Test Handlers
- * Temporary handlers để verify ether_rx() dispatch hoạt động.
- * Sẽ được thay bằng arp_rx() và ip_rx() khi implement Layer 4.
- * ============================================================ */
-static void ether_test_arp_rx(const uint8_t *payload, uint16_t len)
-{
-    (void)payload;
-    uart_printf("[ETH-TEST] RX ARP frame len=%u — ether_rx dispatch OK\n", len);
-}
-
-static void ether_test_ipv4_rx(const uint8_t *payload, uint16_t len)
-{
-    (void)payload;
-    uart_printf("[ETH-TEST] RX IPv4 frame len=%u — ether_rx dispatch OK\n", len);
-}
-/* ============================================================
- * User Space Payload (Defined in payload.S)
- * ============================================================ */
+/* ============================================================ */
+/* User Space Payload (Defined in payload.S) */
+/* ============================================================ */
 extern uint8_t _shell_payload_start;
 extern uint8_t _shell_payload_end;
 
@@ -82,6 +63,11 @@ static struct task_struct shell_task;
  * as the stack base for the User Task. Let's reserve the top 4KB. */
 #define USER_STACK_BASE (USER_SPACE_VA + (USER_SPACE_MB * 1024 * 1024))
 #define USER_STACK_SIZE 4096
+
+/* ============================================================
+ * Network Protocol Tests
+ * ============================================================ */
+#include "network_test_runner.h"
 
 /* ============================================================
  * Kernel Main
