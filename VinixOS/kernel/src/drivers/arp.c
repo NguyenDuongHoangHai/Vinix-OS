@@ -37,6 +37,14 @@ static inline uint16_t bswap16(uint16_t v)
     return (uint16_t)((v >> 8) | (v << 8));
 }
 
+static inline uint32_t bswap32(uint32_t v)
+{
+    return ((v & 0x000000FF) << 24) |
+           ((v & 0x0000FF00) << 8)  |
+           ((v & 0x00FF0000) >> 8)  |
+           ((v & 0xFF000000) >> 24);
+}
+
 static void arp_print_ip(uint32_t ip)
 {
     /* IP is stored in network byte order (big-endian) */
