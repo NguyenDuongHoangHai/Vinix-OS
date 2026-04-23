@@ -230,8 +230,8 @@ void arp_rx(const uint8_t *payload, uint16_t len)
     }
     
     uint16_t opcode = bswap16(pkt->opcode);
-    uint32_t sender_ip = pkt->sender_ip;
-    uint32_t target_ip = pkt->target_ip;
+    uint32_t sender_ip = bswap32(pkt->sender_ip);
+    uint32_t target_ip = bswap32(pkt->target_ip);
     
     uart_printf("[ARP] RX: opcode=%u, sender=", opcode);
     arp_print_ip(sender_ip);
