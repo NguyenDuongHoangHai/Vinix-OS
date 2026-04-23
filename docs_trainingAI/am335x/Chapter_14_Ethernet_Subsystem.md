@@ -921,209 +921,343 @@ Note: The 8k bytes of Ethernet Subsystem CPPI RAM begin at address 0x4a102000 an
 
 A TX buffer descriptor is a contiguous block of four 32-bit data words aligned on a 32-bit word boundary.
 
-Word 0 31 0 Next Descriptor Pointer Word 1 31 0 Buffer Pointer Word 2 31 16 15 0 Buffer Offset Buffer Length Word 3 31 30 29 28 27 26 25 21 20 19 18 17 16 SOP EOP Owner ship EOQ Teardown\_Com plete Pass CRC Reserved To\_Po rt\_En Reserved To\_Port 15 11 10 0 Reserved packet\_length
+---
 
 **Figure 14-7. Tx Buffer Descriptor Format**
 
-#### *14.3.2.4.1.1.1 CPPI Tx Data Word – 0*
+**Word 0** — Next Descriptor Pointer
 
-### **Next Descriptor Pointer**
+| Bits  | Field                   | R/W | Description                        |
+|-------|-------------------------|-----|------------------------------------|
+| 31:0  | next_descriptor_pointer | R/W | 32-bit word-aligned pointer to next BD in TX queue. NULL = last in queue. |
 
-The next descriptor pointer points to the 32-bit word aligned memory address of the next buffer descriptor in the transmit queue. This pointer is used to create a linked list of buffer descriptors. If the value of this pointer is zero, then the current buffer is the last buffer in the queue. The software application must set this value prior to adding the descriptor to the active transmit list. This pointer is not altered by the EMAC.The value of pNext should never be altered once the descriptor is in an active transmit queue, unless its current value is NULL.
+---
 
-If the pNext pointer is initially NULL, and more packets need to be queued for transmit, the software application may alter this pointer to point to a newly appended descriptor. The EMAC will use the new pointer value and proceed to the next descriptor unless the pNext value has already been read. In this latter case, the transmitter will halt on the transmit channel in question, and the software application may restart it at that time. The software can detect this case by checking for an end of queue (EOQ) condition flag on the updated packet descriptor when it is returned by the EMAC.
+**Word 1** — Buffer Pointer
 
-#### *14.3.2.4.1.1.2 CPPI Tx Data Word – 1*
+| Bits  | Field          | R/W | Description                                      |
+|-------|----------------|-----|--------------------------------------------------|
+| 31:0  | buffer_pointer | R/W | Byte-aligned memory address of the data buffer.  |
 
-**Buffer Pointer**
+---
 
-The byte aligned memory address of the buffer associated with the buffer descriptor. The host sets the **buffer\_pointer**. The software application must set this value prior to adding the descriptor to the active transmit list. This pointer is not altered by the EMAC.
+**Word 2** — Buffer Offset / Buffer Length
 
-#### *14.3.2.4.1.1.3 CPPI Tx Data Word – 2*
+| Bits  | Field         | R/W | Description                                                  |
+|-------|---------------|-----|--------------------------------------------------------------|
+| 31:16 | buffer_offset | R/W | Unused bytes at start of buffer. Valid only on SOP.          |
+| 15:0  | buffer_length | R/W | Number of valid data bytes in buffer. Must be > 0.           |
 
-#### **Buffer \_Offset**
+---
 
-Buffer Offset – Indicates how many unused bytes are at the start of the buffer. A value of 0x0000 indicates that no unused bytes are at the start of the buffer and that valid data begins on the first byte of the buffer. A value of 0x000F (decimal 15) indicates that the first 15 bytes of the buffer are to be ignored by the port and that valid buffer data starts on byte 16 of the buffer. The host sets the buffer\_offset value (which may be zero to the buffer length minus 1). Valid only on sop.
+**Word 3** — Flags / Control / Packet Length
 
-#### **Buffer \_Length**
+| Bits  | Field             | R/W | Description                                                                 |
+|-------|-------------------|-----|-----------------------------------------------------------------------------|
+| 31    | SOP               | R/W | Start of Packet. Set by software. 1 = first buffer of packet.               |
+| 30    | EOP               | R/W | End of Packet. Set by software. 1 = last buffer of packet.                  |
+| 29    | OWNERSHIP         | R/W | 1 = owned by EMAC. Set by SW on SOP, cleared by EMAC when done.             |
+| 28    | EOQ               | R/W | End of Queue. Set by EMAC when last descriptor and next ptr is NULL.        |
+| 27    | TDOWNCMPLT        | R/W | Teardown Complete. Set by EMAC on SOP during queue teardown.                |
+| 26    | PASSCRC           | R/W | Pass CRC. Set by SW if 4-byte CRC already appended to packet data.          |
+| 25:21 | Reserved          | R   | Reserved. Write 0.                                                          |
+| 20    | TO_PORT_EN        | R/W | To Port Enable. 1 = directed packet, send to port in TO_PORT field.         |
+| 19:18 | Reserved          | R   | Reserved. Write 0.                                                          |
+| 17:16 | TO_PORT           | R/W | Destination port (1 or 2). Valid only when TO_PORT_EN=1. Valid on SOP.      |
+| 15:11 | Reserved          | R   | Reserved. Write 0.                                                          |
+| 10:0  | packet_length     | R/W | Total packet byte count (excluding offset). Must be > 0. Valid on SOP only. |
 
-Buffer Length – Indicates how many valid data bytes are in the buffer. Unused or protocol specific bytes at the beginning of the buffer are not counted in the Buffer Length field. The host sets the buffer\_length. The buffer\_length must be greater than zero.
+---
 
-#### *14.3.2.4.1.1.4 CPPI Tx Data Word – 3*
+#### *14.3.2.4.1.1.1 CPPI Tx Data Word – 0: next\_descriptor\_pointer*
 
-## **Start of Packet (SOP) Flag**
+The 32-bit word-aligned memory address of the next buffer descriptor in the TX queue. Used to create a linked list of BDs. If zero, the current buffer is the last in the queue. Set by software before adding to the active TX list. Not altered by the EMAC.
 
-When set, this flag indicates that the descriptor points to a packet buffer that is the start of a new packet.In the case of a single fragment packet, both the SOP and end of packet (EOP) flags are set. Otherwise,the descriptor pointing to the last packet buffer for the packet sets the EOP flag. This bit is set by the software application and is not altered by the EMAC.
+> **Note:** `pNext` must not be altered once the descriptor is in an active TX queue unless its current value is NULL. If initially NULL and more packets need queuing, software may update it. If the EMAC has already read the NULL value, the transmitter halts and software must restart it — detectable via the EOQ flag on the returned descriptor.
 
-- 0 Not start of packet buffer
-- 1 Start of packet buffer
+---
 
-#### **End of Packet (EOP) Flag**
+#### *14.3.2.4.1.1.2 CPPI Tx Data Word – 1: buffer\_pointer*
 
-When set, this flag indicates that the descriptor points to a packet buffer that is last for a given packet. In the case of a single fragment packet, both the start of packet (SOP) and EOP flags are set. Otherwise, the descriptor pointing to the last packet buffer for the packet sets the EOP flag. This bit is set by the software application and is not altered by the EMAC.
+The byte-aligned memory address of the data buffer associated with this descriptor. Set by software before adding to the active TX list. Not altered by the EMAC.
 
-- 0 Not end of packet buffer.
-- 1 End of packet buffer.
+---
 
-## **Ownership**
+#### *14.3.2.4.1.1.3 CPPI Tx Data Word – 2: buffer\_offset / buffer\_length*
 
-When set this flag indicates that all the descriptors for the given packet (from SOP to EOP) are currently owned by the EMAC. This flag is set by the software application on the SOP packet descriptor before adding the descriptor to the transmit descriptor queue. For a single fragment packet, the SOP, EOP, and OWNER flags are all set. The OWNER flag is cleared by the EMAC once it is finished with all the descriptors for the given packet. Note that this flag is valid on SOP descriptors only.
+**buffer\_offset** (bits 31:16)
 
-- 0 The packet is owned by the host
-- 1 The packet is owned by the port
+Unused bytes at the start of the buffer. `0x0000` = data starts at byte 0. `0x000F` = first 15 bytes ignored, data starts at byte 16. Set by host. Valid only on SOP.
 
-#### **EOQ**
+**buffer\_length** (bits 15:0)
 
-When set, this flag indicates that the descriptor in question was the last descriptor in the transmit queue for a given transmit channel, and that the transmitter has halted. This flag is initially cleared by the software application prior to adding the descriptor to the transmit queue. This bit is set by the EMAC when the EMAC identifies that a descriptor is the last for a given packet (the EOP flag is set), and there are no more descriptors in the transmit list (next descriptor pointer is NULL).
+Number of valid data bytes in the buffer. Unused/protocol bytes at the start are not counted. Set by host. Must be > 0.
 
-The software application can use this bit to detect when the EMAC transmitter for the corresponding channel has halted. This is useful when the application appends additional packet descriptors to a transmit queue list that is already owned by the EMAC. Note that this flag is valid on EOP descriptors only.
+---
 
-0 - The Tx queue has more packets to transfer.
+#### *14.3.2.4.1.1.4 CPPI Tx Data Word – 3: flags / control / packet\_length*
 
-1 - The Descriptor buffer is the last buffer in the last packet in the queue.
+**SOP — Start of Packet (bit 31)**
 
-### **teardown\_Complete**
+Set by software. Indicates this descriptor points to the first buffer of a packet. For single-fragment packets, both SOP and EOP are set. Not altered by EMAC.
 
-This flag is used when a transmit queue is being torn down, or aborted, instead of allowing it to be
+- `0` = Not start of packet buffer
+- `1` = Start of packet buffer
 
-transmitted. This would happen under device driver reset or shutdown conditions. The EMAC sets this bit in the SOP descriptor of each packet as it is aborted from transmission. Note that this flag is valid on SOP descriptors only. Also note that only the first packet in an unsent list has the TDOWNCMPLT flag set. Subsequent descriptors are not processed by the EMAC.
+**EOP — End of Packet (bit 30)**
 
-- 0 The port has not completed the teardown process.
-- 1 The port has completed the commanded teardown process.
+Set by software. Indicates this descriptor points to the last buffer of a packet. For single-fragment packets, both SOP and EOP are set. Not altered by EMAC.
 
-#### **pass\_crc**
+- `0` = Not end of packet buffer
+- `1` = End of packet buffer
 
-This flag is set by the software application in the SOP packet descriptor before it adds the descriptor to the transmit queue. Setting this bit indicates to the EMAC that the 4 byte Ethernet CRC is already present in the packet data, and that the EMAC should not generate its own version of the CRC.When the CRC flag is cleared, the EMAC generates and appends the 4-byte CRC. The buffer length and packet length fields do not include the CRC bytes. When the CRC flag is set, the 4-byte CRC is supplied by the software application and is already appended to the end of the packet data. The buffer length and packet length fields include the CRC bytes, as they are part of the valid packet data. Note that this flag is valid on SOP descriptors only.
+**OWNERSHIP (bit 29)**
 
-- 0 The CRC is not included with the packet data and packet length.
-- 1 The CRC is included with the packet data and packet length.
+Set by software on SOP before adding to TX queue. Indicates all descriptors for the packet (SOP→EOP) are owned by the EMAC. Cleared by EMAC when done. Valid on SOP only.
 
-## **to\_port**
+- `0` = Packet owned by host
+- `1` = Packet owned by EMAC
 
-To Port – Port number to send the directed packet to. This field is set by the host. This field is valid on SOP. Directed packets go to the directed port, but an ALE lookup is performed to determine untagged egress in VLAN\_AWARE mode.
+**EOQ — End of Queue (bit 28)**
 
-- 1 Send the packet to port 1 if to\_port\_en is asserted.
-- 2 Send the packet to port 2 if to\_port\_en is asserted.
+Cleared by software before queuing. Set by EMAC when the EOP descriptor has a NULL next pointer — indicates the TX channel has halted. Valid on EOP only.
 
-#### **To\_port\_enable**
+- `0` = TX queue has more packets
+- `1` = Last descriptor in last packet; transmitter halted
 
-To Port Enable – Indicates when set that the packet is a directed packet to be sent to the to\_port field port number. This field is set by the host. The packet is sent to one port only (index not mask). This bit is valid on SOP.
+**TDOWNCMPLT — Teardown Complete (bit 27)**
 
-- 0 not a directed packet
-- 1 directed packet
+Set by EMAC on the SOP descriptor of each packet aborted during queue teardown (device driver reset/shutdown). Only the first packet in an unsent list gets this flag. Valid on SOP only.
 
-#### **Packet Length**
+- `0` = Teardown not completed
+- `1` = Teardown completed
 
-Specifies the number of bytes in the entire packet. Offset bytes are not included. The sum of the buffer\_length fields should equal the packet\_length. Valid only on SOP. The packet length must be greater than zero. The packet data will be truncated to the packet length if the packet length is shorter than the sum of the packet buffer descriptor buffer lengths. A host error occurs if the packet length is greater than the sum of the packet buffer descriptor buffer lengths
+**PASSCRC — Pass CRC (bit 26)**
+
+Set by software on SOP. Tells EMAC that the 4-byte CRC is already appended to the packet data — EMAC will not generate its own CRC. When cleared, EMAC generates and appends the CRC. Buffer/packet length fields include CRC bytes when this bit is set. Valid on SOP only.
+
+- `0` = CRC not included; EMAC generates CRC
+- `1` = CRC already included in packet data and length
+
+**TO\_PORT\_EN — To Port Enable (bit 20)**
+
+Set by host. Indicates a directed packet — send to the port specified in TO\_PORT. Valid on SOP.
+
+- `0` = Not a directed packet
+- `1` = Directed packet
+
+**TO\_PORT — Destination Port (bits 17:16)**
+
+Port number to send the directed packet to. Valid only when TO\_PORT\_EN=1. ALE lookup still performed for untagged egress in VLAN\_AWARE mode. Valid on SOP.
+
+- `1` = Send to port 1
+- `2` = Send to port 2
+
+**packet\_length (bits 10:0)**
+
+Total byte count of the entire packet. Offset bytes not included. Sum of all `buffer_length` fields must equal `packet_length`. Must be > 0. Valid on SOP only. Packet data is truncated if `packet_length` < sum of buffer lengths. Host error if `packet_length` > sum of buffer lengths.
+
+> ⚠️ **CRITICAL — TX BD C Macro Definitions**
+>
+> ```c
+> /* TX BD Word 3 — same bit positions as RX BD */
+> #define BD_SOP     (1u << 31)  /* bit 31 — Start of Packet      */
+> #define BD_EOP     (1u << 30)  /* bit 30 — End of Packet        */
+> #define BD_OWNER   (1u << 29)  /* bit 29 — Ownership            */
+> #define BD_EOQ     (1u << 28)  /* bit 28 — End of Queue         */
+> #define BD_TDOWN   (1u << 27)  /* bit 27 — Teardown Complete    */
+> #define BD_PASSCRC (1u << 26)  /* bit 26 — Pass CRC             */
+>
+> /* TX-only fields */
+> #define BD_TO_PORT_EN (1u << 20)       /* bit 20 — Directed packet  */
+> #define BD_TO_PORT(p) ((p) << 16)      /* bits 17:16 — Dest port    */
+> #define BD_PKT_LEN    (0x7FFu)         /* bits 10:0 — Packet length */
+>
+> /* Typical TX BD init: */
+> /* flags = BD_OWNER | BD_SOP | BD_EOP | packet_length */
+> /* = 0xE0000000 | len                                 */
+> ```
 
 #### *14.3.2.4.1.2 RX Buffer Descriptors*
 
 An RX buffer descriptor is a contiguous block of four 32-bit data words aligned on a 32-bit word boundary.
 
-|          |          |               |     |                           |                    |      |       |                           | Figure 14-8. Rx Buffer Descriptor Format |               |         |                   |           |    |
-|----------|----------|---------------|-----|---------------------------|--------------------|------|-------|---------------------------|------------------------------------------|---------------|---------|-------------------|-----------|----|
-| Word 0   |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           |    |
-| 31       |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           | 0  |
-|          |          |               |     |                           |                    |      |       | Next Descriptor Pointer   |                                          |               |         |                   |           |    |
-| Word 1   |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           |    |
-| 31       |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           | 0  |
-|          |          |               |     |                           |                    |      |       | Buffer Pointer            |                                          |               |         |                   |           |    |
-| Word 2   |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           |    |
-| 31       |          | 27<br>26      |     |                           |                    |      | 16    | 15                        |                                          | 11<br>10      |         |                   |           | 0  |
-|          | Reserved |               |     |                           | Buffer Offset      |      |       | Reserved<br>Buffer Length |                                          |               |         |                   |           |    |
-| Word 3   |          |               |     |                           |                    |      |       |                           |                                          |               |         |                   |           |    |
-| 31       | 30       | 29            | 28  | 27                        | 26                 | 25   | 24    | 23                        | 22                                       | 21            | 20      | 19                | 18        | 16 |
-| SOP      | EOP      | Owner<br>ship | EOQ | Teardo<br>wn_Co<br>mplete | Passe<br>d_CR<br>C | Long | Short | MAC_<br>Ctl               | Overru<br>n                              |               | PKT_Err | Rx_Vlan_Enca<br>p | From_Port |    |
-| 15       |          |               |     | 11                        | 10                 |      |       |                           |                                          |               |         |                   |           | 0  |
-| Reserved |          |               |     |                           |                    |      |       |                           |                                          | packet_length |         |                   |           |    |
+---
 
-#### *14.3.2.4.1.2.1 CPPI Rx Data Word – 0*
+**Figure 14-8. Rx Buffer Descriptor Format**
 
-### **next\_descriptor\_pointer**
+**Word 0** — Next Descriptor Pointer
 
-The 32-bit word aligned memory address of the next buffer descriptor in the RX queue. This is the mechanism used to reference the next buffer descriptor from the current buffer descriptor. If the value of this pointer is zero then the current buffer is the last buffer in the queue. The host sets the **next\_descriptor\_pointer**.
+| Bits  | Field                   | R/W | Description                                                        |
+|-------|-------------------------|-----|--------------------------------------------------------------------|
+| 31:0  | next_descriptor_pointer | R/W | 32-bit word-aligned pointer to next BD in RX queue. NULL = last.  |
 
-#### *14.3.2.4.1.2.2 CPPI Rx Data Word – 1*
+---
 
-### **buffer\_pointer**
+**Word 1** — Buffer Pointer
 
-The byte aligned memory address of the buffer associated with the buffer descriptor. The host sets the **buffer\_pointer**.
+| Bits  | Field          | R/W | Description                                     |
+|-------|----------------|-----|-------------------------------------------------|
+| 31:0  | buffer_pointer | R/W | Byte-aligned memory address of the data buffer. |
 
-#### *14.3.2.4.1.2.3 CPPI Rx Data Word – 2*
+---
 
-#### **Buffer \_Offset**
+**Word 2** — Buffer Offset / Buffer Length
 
-Buffer Offset – Indicates how many unused bytes are at the start of the buffer. A value of 0x0000 indicates that there are no unused bytes at the start of the buffer and that valid data begins on the first byte of the buffer. A value of 0x000F (decimal 15) indicates that the first 15 bytes of the buffer are to be ignored by the port and that valid buffer data starts on byte 16 of the buffer. The port writes the **buffer\_offset** with the value from the **rx\_buffer\_offset** register value. The host initializes the **buffer\_offset** to zero for free buffers. The **buffer\_length** must be greater than the **rx\_buffer\_offset** value. The buffer offset is valid only on **sop**.
+| Bits  | Field         | R/W | Description                                                                                   |
+|-------|---------------|-----|-----------------------------------------------------------------------------------------------|
+| 31:27 | Reserved      | R   | Reserved.                                                                                     |
+| 26:16 | buffer_offset | R   | Written by port with `rx_buffer_offset` register value. Host initializes to 0. Valid on SOP. |
+| 15:11 | Reserved      | R   | Reserved.                                                                                     |
+| 10:0  | buffer_length | R/W | Host initializes. Port overwrites on SOP/EOP if needed. Must be > `rx_buffer_offset`.        |
 
-## **Buffer \_Length**
+---
 
-Buffer Length – Indicates how many valid data bytes are in the buffer. Unused or protocol specific bytes at the beginning of the buffer are not counted in the Buffer Length field. The host initializes the **buffer\_length**, but the port may overwrite the host initiated value with the actual buffer length value on SOP and/or EOP buffer descriptors. SOP buffer length values will be overwritten if the packet size is less than the size of the buffer or if the offset is nonzero. EOP buffer length values will be overwritten if the entire buffer is not filled up with data. The **buffer\_length** must be greater than zero.
+**Word 3** — Flags / Status / Packet Length
 
-#### *14.3.2.4.1.2.4 CPPI Rx Data Word – 3*
+| Bits  | Field         | R/W | Description                                                                                   |
+|-------|---------------|-----|-----------------------------------------------------------------------------------------------|
+| 31    | SOP           | R   | Start of Packet. Cleared by SW before queuing. Set by EMAC on SOP descriptors.               |
+| 30    | EOP           | R   | End of Packet. Cleared by SW before queuing. Set by EMAC on EOP descriptors.                 |
+| 29    | OWNERSHIP     | R/W | 1 = owned by EMAC. Set by SW before queuing. Cleared by EMAC on SOP when done.               |
+| 28    | EOQ           | R   | End of Queue. Set by EMAC when last EOP has NULL next ptr; RX channel halted. Valid on EOP.  |
+| 27    | TDOWNCMPLT    | R   | Teardown Complete. Set by EMAC in first free BD during queue teardown.                        |
+| 26    | PASSCRC       | R   | Pass CRC. Set by EMAC on SOP if received packet includes 4-byte CRC.                         |
+| 25    | LONG (Jabber) | R   | Set by EMAC on SOP if packet is a jabber frame (exceeds RXMAXLEN with CRC/code/align error). |
+| 24    | SHORT (Frag)  | R   | Set by EMAC on SOP if packet is a fragment (RX_CSF_EN set in MacControl).                    |
+| 23    | MAC_CTL       | R   | Set by EMAC on SOP if packet is an EMAC control frame (RX_CMF_EN set).                       |
+| 22    | OVERRUN       | R   | Set by EMAC on SOP if packet was aborted due to receive overrun.                              |
+| 21:20 | Reserved      | R   | Reserved.                                                                                     |
+| 19:18 | PKT_ERR       | R   | Packet error on ingress: `00`=none, `01`=CRC error, `10`=code error, `11`=align error.       |
+| 17    | RX_VLAN_ENCAP | R   | VLAN encapsulated packet. Set by port from CPSW control register `rx_vlan_encap` bit.        |
+| 16    | FROM_PORT     | R   | Source port number (ingress port). Indicates which port the packet was received on.           |
+| 15:11 | Reserved      | R   | Reserved.                                                                                     |
+| 10:0  | packet_length | R   | Total packet byte count. Offset bytes not included. Valid on SOP only.                        |
 
-### **Start of Packet (SOP) Flag**
+> ⚠️ **CRITICAL — C Macro Definitions (verified against Linux `davinci_cpdma.c`)**
+>
+> Bit positions MUST match exactly. Wrong bit positions cause `DMASTATUS=0x2000`
+> ("Ownership bit not set") immediately on RX enable — a hard-to-debug hardware error.
+>
+> ```c
+> /* BD Word 3 flag bits — RX and TX share same positions */
+> #define BD_SOP       (1u << 31)  /* bit 31 — Start of Packet        */
+> #define BD_EOP       (1u << 30)  /* bit 30 — End of Packet          */
+> #define BD_OWNER     (1u << 29)  /* bit 29 — Ownership (DMA owns)   */
+> #define BD_EOQ       (1u << 28)  /* bit 28 — End of Queue           */
+> #define BD_TDOWN     (1u << 27)  /* bit 27 — Teardown Complete      */
+> #define BD_PASSCRC   (1u << 26)  /* bit 26 — Pass CRC               */
+>
+> /* RX-only status bits (set by EMAC, read by host) */
+> #define BD_LONG      (1u << 25)  /* bit 25 — Jabber frame           */
+> #define BD_SHORT     (1u << 24)  /* bit 24 — Fragment frame         */
+> #define BD_MAC_CTL   (1u << 23)  /* bit 23 — MAC control frame      */
+> #define BD_OVERRUN   (1u << 22)  /* bit 22 — Receive overrun        */
+> #define BD_PKT_ERR   (3u << 18)  /* bits 19:18 — Packet error code  */
+> #define BD_VLAN_ENCAP (1u << 17) /* bit 17 — VLAN encapsulated      */
+> #define BD_FROM_PORT (1u << 16)  /* bit 16 — Source port            */
+> #define BD_PKT_LEN   (0x7FFu)    /* bits 10:0 — Packet length mask  */
+>
+> /* Typical RX BD init by software (host arms BD for DMA): */
+> /* flags = BD_OWNER | BD_SOP | BD_EOP | buffer_length     */
+> /* = (1<<29) | (1<<31) | (1<<30) | len                    */
+> /* = 0xE0000000 | len                                     */
+> ```
+>
+> **Common mistake:** Setting `BD_OWNER = (1u << 31)` instead of `(1u << 29)`.
+> CPDMA checks bit 29 for ownership. If bit 29 = 0, CPDMA reports error code 1
+> ("Ownership bit not set in SOP buffer") and halts the RX channel permanently.
 
-When set, this flag indicates that the descriptor points to a packet buffer that is the start of a new packet.In the case of a single fragment packet, both the SOP and end of packet (EOP) flags are set. Otherwise, the descriptor pointing to the last packet buffer for the packet has the EOP flag set. This flag is initially cleared by the software application before adding the descriptor to the receive queue. This bit is set by the EMAC on SOP descriptors.
+---
 
-## **End of Packet (EOP) Flag**
+#### *14.3.2.4.1.2.1 CPPI Rx Data Word – 0: next\_descriptor\_pointer*
 
-When set, this flag indicates that the descriptor points to a packet buffer that is last for a given packet. In the case of a single fragment packet, both the start of packet (SOP) and EOP flags are set. Otherwise, the descriptor pointing to the last packet buffer for the packet has the EOP flag set. This flag is initially cleared by the software application before adding the descriptor to the receive queue. This bit is set by the EMAC on EOP descriptors.
+The 32-bit word-aligned memory address of the next buffer descriptor in the RX queue. If zero, the current buffer is the last in the queue. Set by host.
 
-## **Ownership (OWNER) Flag**
+---
 
-When set, this flag indicates that the descriptor is currently owned by the EMAC. This flag is set by the software application before adding the descriptor to the receive descriptor queue. This flag is cleared by the EMAC once it is finished with a given set of descriptors, associated with a received packet. The flag is updated by the EMAC on SOP descriptor only. So when the application identifies that the OWNER flag is cleared on an SOP descriptor, it may assume that all descriptors up to and including the first with the EOP flag set have been released by the EMAC. (Note that in the case of single buffer packets, the same descriptor will have both the SOP and EOP flags set.)
+#### *14.3.2.4.1.2.2 CPPI Rx Data Word – 1: buffer\_pointer*
 
-## **End of Queue (EOQ) Flag**
+The byte-aligned memory address of the data buffer associated with this descriptor. Set by host.
 
-When set, this flag indicates that the descriptor in question was the last descriptor in the receive queue for a given receive channel, and that the corresponding receiver channel has halted. This flag is initially cleared by the software application prior to adding the descriptor to the receive queue. This bit is set by the EMAC when the EMAC identifies that a descriptor is the last for a given packet received (also sets the EOP flag), and there are no more descriptors in the receive list (next descriptor pointer is NULL).The software application can use this bit to detect when the EMAC receiver for the corresponding channel has halted. This is useful when the application appends additional free buffer descriptors to an active receive queue. Note that this flag is valid on EOP descriptors only.
+---
 
-### **Teardown Complete (TDOWNCMPLT) Flag**
+#### *14.3.2.4.1.2.3 CPPI Rx Data Word – 2: buffer\_offset / buffer\_length*
 
-This flag is used when a receive queue is being torn down, or aborted, instead of being filled with received data. This would happen under device driver reset or shutdown conditions. The EMAC sets this bit in the descriptor of the first free buffer when the tear down occurs. No additional queue processing is performed.
+**buffer\_offset** (bits 26:16)
 
-## **Pass CRC (PASSCRC) Flag**
+Indicates unused bytes at the start of the buffer. `0x0000` = data starts at byte 0. `0x000F` = first 15 bytes ignored, data starts at byte 16. Written by port with the `rx_buffer_offset` register value. Host initializes to 0 for free buffers. `buffer_length` must be > `rx_buffer_offset`. Valid only on SOP.
 
-This flag is set by the EMAC in the SOP buffer descriptor if the received packet includes the 4-byte CRC.This flag should be cleared by the software application before submitting the descriptor to the receive queue.
+**buffer\_length** (bits 10:0)
 
-#### **Long (Jabber) Flag**
+Number of valid data bytes in the buffer. Unused/protocol bytes at the start are not counted. Host initializes this field. Port may overwrite on SOP (if packet < buffer size or offset ≠ 0) and/or EOP (if buffer not fully filled). Must be > 0.
 
-This flag is set by the EMAC in the SOP buffer descriptor, if the received packet is a jabber frame and was not discarded because the RX\_CEF\_EN bit was set in the MacControl. Jabber frames are frames that exceed the RXMAXLEN in length, and have CRC, code, or alignment errors.
+---
 
-### **Short (Fragment) Flag**
+#### *14.3.2.4.1.2.4 CPPI Rx Data Word – 3: flags / status / packet\_length*
 
-This flag is set by the EMAC in the SOP buffer descriptor, if the received packet is only a packet fragment and was not discarded because the RX\_CSF\_EN bit was set in the MacControl.
+**SOP — Start of Packet (bit 31)**
 
-#### **Control Flag**
+Cleared by SW before queuing. Set by EMAC on SOP descriptors.
 
-This flag is set by the EMAC in the SOP buffer descriptor, if the received packet is an EMAC control frame and was not discarded because the RX\_CMF\_EN bit was set in the MacControl.
+**EOP — End of Packet (bit 30)**
 
-#### **Overrun Flag**
+Cleared by SW before queuing. Set by EMAC on EOP descriptors. For single-fragment packets, both SOP and EOP are set.
 
-This flag is set by the EMAC in the SOP buffer descriptor, if the received packet was aborted due to a receive overrun.
+**OWNERSHIP (bit 29)**
 
-### **Pkt\_error Flag**
+Set by SW before queuing. Cleared by EMAC on SOP descriptor when all descriptors for the packet are released. When SW sees OWNER=0 on an SOP, all descriptors through the first EOP have been released.
 
-Packet Contained Error on Ingress –
+**EOQ — End of Queue (bit 28)**
 
-00 – no error
+Cleared by SW before queuing. Set by EMAC when the EOP descriptor has a NULL next pointer — RX channel has halted. Valid on EOP only. Useful for detecting when to append more free buffers.
 
-01 – CRC error on ingress
+**TDOWNCMPLT — Teardown Complete (bit 27)**
 
-10 – Code error on ingress
+Set by EMAC in the first free BD when a receive queue teardown occurs. No further queue processing is performed after this point.
 
-11 – Align error on ingress
+**PASSCRC — Pass CRC (bit 26)**
 
-#### **rx\_vlan\_encap**
+Set by EMAC on SOP if the received packet includes the 4-byte CRC. Cleared by SW before queuing.
 
-VLAN Encapsulated Packet – Indicates when set that the packet data contains a 32-bit VLAN header word that is included in the packet byte count. This field is set by the port to be the value of the CPSW control register rx\_vlan\_encap bit
+**LONG — Jabber Flag (bit 25)**
 
-### **from\_port**
+Set by EMAC on SOP if the received packet is a jabber frame (exceeds RXMAXLEN with CRC/code/align error) and was not discarded because `RX_CEF_EN` was set in MacControl.
 
-From Port – Indicates the port number that the packet was received on (ingress to the switch).
+**SHORT — Fragment Flag (bit 24)**
 
-## **Packet Length**
+Set by EMAC on SOP if the received packet is a fragment and was not discarded because `RX_CSF_EN` was set in MacControl.
 
-Specifies the number of bytes in the entire packet. The packet length is reduced to 12-bits. Offset bytes are not included. The sum of the buffer\_length fields should equal the packet\_length. Valid only on SOP.
+**MAC\_CTL — Control Flag (bit 23)**
+
+Set by EMAC on SOP if the received packet is an EMAC control frame and was not discarded because `RX_CMF_EN` was set in MacControl.
+
+**OVERRUN (bit 22)**
+
+Set by EMAC on SOP if the received packet was aborted due to a receive overrun.
+
+**PKT\_ERR (bits 19:18)**
+
+Packet error on ingress:
+
+| Value | Meaning          |
+|-------|------------------|
+| `00`  | No error         |
+| `01`  | CRC error        |
+| `10`  | Code error       |
+| `11`  | Alignment error  |
+
+**RX\_VLAN\_ENCAP (bit 17)**
+
+Set by port when the packet contains a 32-bit VLAN header word included in the byte count. Value mirrors the CPSW control register `rx_vlan_encap` bit.
+
+**FROM\_PORT (bit 16)**
+
+Ingress port number — indicates which port the packet was received on.
+
+**packet\_length (bits 10:0)**
+
+Total byte count of the entire received packet. Offset bytes not included. Sum of `buffer_length` fields should equal `packet_length`. Valid on SOP only.
 
 #### *14.3.2.4.2 Receive DMA Interface*
 
@@ -1139,6 +1273,28 @@ To configure the Rx DMA for operation the host must perform the following:
 - Write the rx\_buffer\_offset register value.
 - Setup the receive channel(s) buffer descriptors in host memory as required by CPPI 3.0.
 - Enable the RX DMA controller by setting the rx\_en bit in the Rx\_Control register.
+
+> ⚠️ **CRITICAL — Init Sequence Order**
+>
+> The order above is MANDATORY. Specifically:
+>
+> **Step 5 MUST complete before Step 6.**
+> BD must be fully written to CPPI RAM with `OWNERSHIP=1` (bit 29) before
+> `CPDMA_RX_CONTROL` is enabled. If RX is enabled before BD is ready,
+> CPDMA reads the BD immediately and sees `OWNERSHIP=0` → sets
+> `DMASTATUS=0x2000` (error code 1: "Ownership bit not set") → halts channel.
+>
+> ```c
+> /* CORRECT sequence */
+> mmio_write32(RX_BD + BD_OFF_FLAGS,
+>              BD_SOP | BD_EOP | BD_OWNER | len);  /* Step 5: arm BD */
+> mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);        /* Step 5: kick HDP */
+> mmio_write32(CPDMA_RX_CONTROL, 1);               /* Step 6: enable RX */
+>
+> /* WRONG — causes DMASTATUS=0x2000 */
+> mmio_write32(CPDMA_RX_CONTROL, 1);               /* Enable BEFORE BD ready */
+> mmio_write32(RX_BD + BD_OFF_FLAGS, BD_OWNER...); /* Too late! */
+> ```
 
 #### *14.3.2.4.2.2 Receive Channel Teardown*
 
@@ -10854,3 +11010,172 @@ LEGEND: R/W = Read/Write; R = Read only; -*n* = value after reset
 |      |            |      |       | 1 = Link change status interrupts for PHY address specified in<br>PHYADDRMON bits are enabled.                                                                                                 |
 | 5    | Reserved   | R    | 0     | Reserved.                                                                                                                                                                                      |
 | 4-0  | PHYADDRMON | R/W  | 0     | PHY address whose link status is to be monitored.                                                                                                                                              |
+
+
+---
+
+## **APPENDIX: Critical Register C Macro Reference**
+
+> Tóm tắt các register quan trọng với C macro definitions chính xác.
+> Dùng section này khi generate code để tránh lỗi bit position.
+
+---
+
+### A.1 CPPI Buffer Descriptor — Word 3 Flags
+
+Áp dụng cho cả TX và RX BD. Bit positions giống nhau.
+
+```c
+/* BD Word 3 — verified against Linux davinci_cpdma.c */
+#define BD_SOP     (1u << 31)  /* Start of Packet                    */
+#define BD_EOP     (1u << 30)  /* End of Packet                      */
+#define BD_OWNER   (1u << 29)  /* 1=DMA owns, 0=CPU owns             */
+#define BD_EOQ     (1u << 28)  /* End of Queue (DMA halted)          */
+#define BD_TDOWN   (1u << 27)  /* Teardown Complete                  */
+#define BD_PASSCRC (1u << 26)  /* Pass CRC (TX) / CRC included (RX) */
+
+/* RX-only status bits (set by EMAC) */
+#define BD_LONG    (1u << 25)  /* Jabber frame                       */
+#define BD_SHORT   (1u << 24)  /* Fragment frame                     */
+#define BD_MAC_CTL (1u << 23)  /* MAC control frame                  */
+#define BD_OVERRUN (1u << 22)  /* Receive overrun                    */
+#define BD_PKT_ERR (3u << 18)  /* Packet error: 00=none,01=CRC,10=code,11=align */
+#define BD_VLAN    (1u << 17)  /* VLAN encapsulated                  */
+#define BD_FROM_PORT (1u << 16)/* Source port number                 */
+#define BD_PKT_LEN (0x7FFu)    /* Packet length mask (bits 10:0)     */
+
+/* Typical init values */
+/* SW arms RX BD:  BD_SOP | BD_EOP | BD_OWNER | buffer_len = 0xE0000000 | len */
+/* SW arms TX BD:  BD_SOP | BD_EOP | BD_OWNER | packet_len = 0xE0000000 | len */
+```
+
+---
+
+### A.2 MACCONTROL Register (SL1_MACCONTROL @ 0x4A100D84)
+
+```c
+#define SL1_MACCONTROL  (0x4A100D80u + 0x004u)
+
+/* Bit definitions */
+#define MAC_FULLDUPLEX   (1u << 0)  /* Full duplex mode                    */
+#define MAC_LOOPBACK     (1u << 1)  /* Internal MAC loopback (test only)   */
+#define MAC_RX_FLOW_EN   (1u << 3)  /* RX flow control enable              */
+#define MAC_TX_FLOW_EN   (1u << 4)  /* TX flow control enable              */
+#define MAC_GMII_EN      (1u << 5)  /* GMII enable — MUST be written LAST  */
+#define MAC_TX_PACE      (1u << 6)  /* TX pacing (APO)                     */
+#define MAC_GIG          (1u << 7)  /* Gigabit mode                        */
+#define MAC_TX_SHORT_GAP (1u << 10) /* Short gap enable                    */
+#define MAC_CMD_IDLE     (1u << 11) /* Command idle                        */
+#define MAC_RX_CEF_EN    (1u << 18) /* Copy error frames                   */
+#define MAC_RX_CSF_EN    (1u << 19) /* Copy short frames                   */
+#define MAC_RX_CMF_EN    (1u << 20) /* Copy MAC control frames             */
+
+/* IMPORTANT: GMII_EN must be written LAST in MACCONTROL.
+ * Writing other bits after GMII_EN may cause MAC to start
+ * processing with incomplete config. */
+/* Correct init sequence:
+ *   mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX);
+ *   mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN); */
+```
+
+---
+
+### A.3 ALE_CONTROL Register (@ 0x4A100D08)
+
+```c
+#define CPSW_ALE_BASE   0x4A100D00u
+#define ALE_CONTROL    (CPSW_ALE_BASE + 0x008u)
+#define ALE_PORTCTL0   (CPSW_ALE_BASE + 0x040u)
+#define ALE_PORTCTL1   (CPSW_ALE_BASE + 0x044u)
+
+/* ALE_CONTROL bit definitions */
+#define ALE_ENABLE      (1u << 31)  /* ALE enable                          */
+#define ALE_CLEAR_TABLE (1u << 30)  /* Clear address table                 */
+#define ALE_AGEOUT      (1u << 29)  /* Age out addresses                   */
+#define ALE_BYPASS      (1u << 4)   /* Bypass mode — forward all to port 0 */
+#define ALE_VLAN_AWARE  (1u << 2)   /* VLAN aware mode                     */
+
+/* ALE_PORTCTLn values */
+#define ALE_PORT_DISABLED  0x0u  /* Port disabled                          */
+#define ALE_PORT_BLOCKED   0x1u  /* Port blocked                           */
+#define ALE_PORT_LEARNING  0x2u  /* Port learning                          */
+#define ALE_PORT_FORWARD   0x3u  /* Port forwarding — required for RX/TX   */
+
+/* Typical bypass mode init:
+ *   mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_CLEAR_TABLE);
+ *   mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS);
+ *   mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
+ *   mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD); */
+```
+
+---
+
+### A.4 GMII_SEL Register (Control Module @ 0x44E10650)
+
+```c
+#define CTRL_BASE    0x44E10000u
+#define CONF_GMII_SEL (CTRL_BASE + 0x650u)
+
+/* GMII_SEL values — MUST set before any MII pin config */
+#define GMII1_SEL_MII   0x00u  /* MII mode (BBB uses this)    */
+#define GMII1_SEL_RMII  0x01u  /* RMII mode                   */
+#define GMII1_SEL_RGMII 0x02u  /* RGMII mode                  */
+
+/* IMPORTANT: U-Boot may leave GMII_SEL in RGMII/RMII mode.
+ * Must explicitly set to MII before configuring MII pins.
+ * Failure to do so causes pinmux to be wrong → no RX frames. */
+/* mmio_write32(CONF_GMII_SEL, GMII1_SEL_MII);  // FIRST! */
+```
+
+---
+
+### A.5 CPDMA_EOI_VECTOR Register (@ 0x4A100894)
+
+```c
+#define CPSW_CPDMA_BASE   0x4A100800u
+#define CPDMA_EOI_VECTOR (CPSW_CPDMA_BASE + 0x094u)
+
+/* EOI values — write after processing each interrupt type */
+#define CPDMA_EOI_RX_THRESH  0u  /* RX threshold interrupt EOI */
+#define CPDMA_EOI_RX         1u  /* RX interrupt EOI           */
+#define CPDMA_EOI_TX         2u  /* TX interrupt EOI           */
+#define CPDMA_EOI_MISC       3u  /* Misc interrupt EOI         */
+
+/* IMPORTANT: EOI MUST be written in ISR, not after frame processing.
+ * Linux writes EOI in cpsw_rx_interrupt() before napi_schedule().
+ * Writing EOI late causes CPDMA to stall waiting for ack. */
+```
+
+---
+
+### A.6 CPSW_WR Interrupt Pacing (@ 0x4A101200)
+
+```c
+#define CPSW_WR_BASE       0x4A101200u
+#define CPSW_WR_C0_RX_EN  (CPSW_WR_BASE + 0x030u)
+#define CPSW_WR_C0_TX_EN  (CPSW_WR_BASE + 0x02Cu)
+
+/* Write 0 to disable pacing (polling mode)
+ * Write 0xFF to enable pacing (interrupt mode)
+ * In polling mode: disable both to prevent CPDMA stall */
+```
+
+---
+
+### A.7 STATERAM — HDP/CP Registers
+
+```c
+#define CPSW_STATERAM_BASE  0x4A100A00u
+#define STATERAM_TX0_HDP   (CPSW_STATERAM_BASE + 0x000u)  /* TX ch0 head ptr */
+#define STATERAM_RX0_HDP   (CPSW_STATERAM_BASE + 0x020u)  /* RX ch0 head ptr */
+#define STATERAM_TX0_CP    (CPSW_STATERAM_BASE + 0x040u)  /* TX ch0 completion */
+#define STATERAM_RX0_CP    (CPSW_STATERAM_BASE + 0x060u)  /* RX ch0 completion */
+
+/* CPPI_RAM layout (8KB @ 0x4A102000) */
+#define CPPI_RAM_BASE  0x4A102000u
+/* Typical single-BD layout:
+ *   0x4A102000 : TX BD   (16 bytes)
+ *   0x4A102010 : RX BD   (16 bytes)
+ *   0x4A102020 : TX buf  (1024 bytes)
+ *   0x4A102420 : RX buf  (1024 bytes) */
+```
