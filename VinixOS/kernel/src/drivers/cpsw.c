@@ -311,6 +311,10 @@ static void cpsw_rx_isr(void *data)
     mmio_write32(CPSW_WR_C0_RX_EN, 0);
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
     s_rx_pending = 1;
+    
+    /* Debug: Set flag to indicate ISR was called */
+    static volatile uint32_t rx_isr_count = 0;
+    rx_isr_count++;
 }
 
 static void cpsw_rx_irq_init(void)
@@ -494,25 +498,42 @@ void cpsw_set_rx_callback(void (*cb)(const uint8_t *buf, uint16_t len))
  * ============================================================ */
 void cpsw_rx_poll(void)
 {
+    /* Debug: Check DMA status */
+    uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
+    static uint32_t last_dmastat = 0;
+    if (dmastat != last_dmastat) {
+        uart_printf("[CPSW] DMASTATUS change: 0x%08x -> 0x%08x\n", last_dmastat, dmastat);
+        last_dmastat = dmastat;
+    }
+    
     /* Primary path: ISR signaled a frame is ready */
     if (s_rx_pending) {
+        uart_printf("[CPSW] RX: ISR signaled frame ready\n");
         s_rx_pending = 0;
         goto process_frame;
     }
 
     /* Fallback path: ISR not fired, check BD directly. */
     {
-        uint32_t dmastat = mmio_read32(CPDMA_DMASTATUS);
-        if (dmastat & (1u << 13))
+        if (dmastat & (1u << 13)) {
+            uart_printf("[CPSW] RX: RX_HOST_ERR detected\n");
             return;  /* RX_HOST_ERR — silent, no spam */
+        }
     }
 
     {
         uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
-        if (flags & BD_OWNER)
+        if (flags & BD_OWNER) {
+            static uint32_t poll_count = 0;
+            poll_count++;
+            if (poll_count % 1000 == 0) {
+                uart_printf("[CPSW] RX: No frame ready (poll %u, flags=0x%08x)\n", poll_count, flags);
+            }
             return;  /* No frame ready */
+        }
 
         /* Frame arrived but ISR was not called — process silently */
+        uart_printf("[CPSW] RX: Frame arrived without ISR (flags=0x%08x)\n", flags);
         mmio_write32(CPSW_WR_C0_RX_EN, 0);
         mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
     }
@@ -521,14 +542,20 @@ process_frame:
     {
         uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
         if (flags & BD_OWNER) {
+            uart_printf("[CPSW] RX: BD still owned by CPDMA (flags=0x%08x)\n", flags);
             mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
             return;
         }
 
         uint16_t len = (uint16_t)(flags & 0xFFFFu);
+        uart_printf("[CPSW] RX: Processing frame, len=%u, flags=0x%08x\n", len, flags);
 
-        if (s_rx_cb && len > 0)
+        if (s_rx_cb && len > 0) {
+            uart_printf("[CPSW] RX: Calling callback with %u bytes\n", len);
             s_rx_cb((const uint8_t *)RX_BUF_PA, len);
+        } else {
+            uart_printf("[CPSW] RX: No callback or len=0\n");
+        }
 
         mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
 
@@ -540,5 +567,7 @@ process_frame:
         mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
         mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
+        
+        uart_printf("[CPSW] RX: Frame processed, RX re-enabled\n");
     }
 }
