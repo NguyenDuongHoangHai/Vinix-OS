@@ -38,7 +38,7 @@ C_OBJ = $(addprefix $(BUILD_DIR)/, main.o exception_handlers.o irq_core.o uart.o
                block.o buffer_cache.o \
                driver_device.o driver_platform.o \
                format.o \
-               platform_memmap.o platform_devices.o)
+               platform_memmap.o platform_devices.o arp.o netcore.o)
 OBJS = $(ASM_OBJ) $(C_OBJ)
 
 C_OBJ += $(BUILD_DIR)/mdio.o
@@ -170,6 +170,12 @@ $(BUILD_DIR)/cpsw.o: $(SRC)/drivers/cpsw.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/ether.o: $(SRC)/drivers/ether.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/arp.o: $(SRC)/drivers/arp.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/netcore.o: $(SRC)/drivers/netcore.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 # end Hai Nguyen
 # ==================================================

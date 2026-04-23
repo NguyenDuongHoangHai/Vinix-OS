@@ -43,6 +43,8 @@ extern void sync_selftest(void);
 #include "mdio.h"
 #include "cpsw.h"
 #include "ether.h"
+#include "netcore.h"
+#include "arp.h"
 #ifdef ENABLE_LAYER1_TEST
 #include "mdio_test.h"
 #endif
@@ -141,14 +143,18 @@ void kernel_main(void)
     }
 
     /* ------------------------------------------------
-     * Layer 3 RX Test: register test handlers
+     * Layer 3 Network Stack Initialization
      * ------------------------------------------------
-     * Khi laptop gửi ARP hoặc ping → handler được gọi.
-     * Log: [ETH-TEST] RX ARP frame / RX IPv4 frame
-     * Nếu thấy log → ether_rx() dispatch hoạt động.
+     * Initialize ARP and register real handlers
      * ------------------------------------------------ */
-    ether_set_arp_handler(ether_test_arp_rx);
-    ether_set_ipv4_handler(ether_test_ipv4_rx);
+    netcore_init();
+    /* Set my IP and MAC for ARP */
+    {
+        uint8_t mac[6];
+        cpsw_get_mac(mac);
+        arp_set_my_mac(mac);
+        arp_set_my_ip(0x640a8ac0);  /* 192.168.10.100 */
+    }
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
