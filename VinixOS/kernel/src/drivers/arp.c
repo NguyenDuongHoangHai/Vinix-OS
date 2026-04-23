@@ -40,10 +40,10 @@ static inline uint16_t bswap16(uint16_t v)
 static void arp_print_ip(uint32_t ip)
 {
     uart_printf("%u.%u.%u.%u",
-                (ip >> 24) & 0xFF,
-                (ip >> 16) & 0xFF,
+                ip & 0xFF,
                 (ip >> 8) & 0xFF,
-                ip & 0xFF);
+                (ip >> 16) & 0xFF,
+                (ip >> 24) & 0xFF);
 }
 
 static void arp_print_mac(const uint8_t mac[6])
@@ -253,6 +253,12 @@ void arp_rx(const uint8_t *payload, uint16_t len)
     arp_cache_update(sender_ip, pkt->sender_mac);
     
     /* Process packet */
+    uart_printf("[ARP] Checking: opcode=%u, target_ip=", opcode);
+    arp_print_ip(target_ip);
+    uart_printf(", my_ip=");
+    arp_print_ip(s_my_ip);
+    uart_printf("\n");
+    
     if (opcode == ARP_OPCODE_REQUEST && target_ip == s_my_ip) {
         /* ARP request for us - send reply */
         uart_printf("[ARP] Got request for us, sending reply\n");
@@ -260,6 +266,8 @@ void arp_rx(const uint8_t *payload, uint16_t len)
     } else if (opcode == ARP_OPCODE_REPLY) {
         /* ARP reply - cache already updated */
         uart_printf("[ARP] Got reply, cache updated\n");
+    } else {
+        uart_printf("[ARP] Not our request - ignoring\n");
     }
 }
 
