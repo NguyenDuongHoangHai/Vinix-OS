@@ -147,14 +147,14 @@ void kernel_main(void)
      * ------------------------------------------------
      * Initialize ARP and register real handlers
      * ------------------------------------------------ */
-    netcore_init();
-    /* Set my IP and MAC for ARP */
+    /* Set my IP and MAC for ARP FIRST */
     {
         uint8_t mac[6];
         cpsw_get_mac(mac);
         arp_set_my_mac(mac);
         arp_set_my_ip(0x640a8ac0);  /* 192.168.10.100 */
     }
+    netcore_init();
     /* end Hai Nguyen                                     */
     /* ================================================== */
 
