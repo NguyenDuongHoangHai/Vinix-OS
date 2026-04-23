@@ -266,6 +266,11 @@ uart_printf("[BOOT] *** ARP TX DEBUG VERSION 8c16b56 ***\n");
     /* Final gate: integration selftest (bcache, procfs). Panics on fail. */
     selftest_run_all();
 
+    /* Network Protocol Tests */
+    uart_printf("[BOOT] Running Network Protocol Tests...\n");
+    extern network_test_results_t network_run_all_tests(void);
+    network_run_all_tests();
+
     uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
 
     irq_enable();
