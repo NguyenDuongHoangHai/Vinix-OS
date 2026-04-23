@@ -412,6 +412,12 @@ static void cpsw_rx_irq_init(void)
     intc_enable_irq(IRQ_CPSW_RX);
 
     uart_printf("[CPSW] RX interrupt enabled (IRQ %u)\n", IRQ_CPSW_RX);
+    
+    /* DEBUG: Check interrupt controller status */
+    uint32_t mir0 = mmio_read32(INTC_BASE + INTC_MIR(0));
+    uint32_t mir1 = mmio_read32(INTC_BASE + INTC_MIR(1));
+    uint32_t isr = mmio_read32(INTC_BASE + INTC_SIR_IRQ);
+    uart_printf("[CPSW] DEBUG: INTC_MIR0=0x%08x MIR1=0x%08x SIR=0x%08x\n", mir0, mir1, isr);
 }
 
 /* ============================================================
