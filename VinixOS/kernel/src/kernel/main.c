@@ -261,7 +261,11 @@ uart_printf("[BOOT] *** ARP TX DEBUG VERSION 8c16b56 ***\n");
 
     irq_enable();
     cpsw_rx_irq_enable();  /* Enable RX IRQ AFTER CPU IRQ enabled — prevents missed EOI */
-    scheduler_start();
+    
+    // TODO: Fix user app entry point - temporarily disable to prevent crash
+    // scheduler_start();
+    uart_printf("[BOOT] User app disabled - entering infinite loop\n");
+    while (1);
 
     /* Should never reach here */
     while (1)

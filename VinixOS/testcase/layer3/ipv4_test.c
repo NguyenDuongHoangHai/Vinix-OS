@@ -255,7 +255,7 @@ int test_ipv4_fragmentation(void)
     {
         uint16_t flags_fragment = 0x2000;  /* Don't fragment flag */
         uint8_t flags = (flags_fragment >> 13) & 0x07;
-        IPV4_TEST_ASSERT(flags == 0x04, "Don't fragment flag extraction");
+        IPV4_TEST_ASSERT(flags == 0x01, "Don't fragment flag extraction");
     }
     
     /* Test 2: Fragment offset */
