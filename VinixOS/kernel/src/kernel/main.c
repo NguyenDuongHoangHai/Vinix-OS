@@ -45,6 +45,7 @@ extern void sync_selftest(void);
 #include "ether.h"
 #include "netcore.h"
 #include "arp.h"
+#include "net_utils_test.h"
 #ifdef ENABLE_LAYER1_TEST
 #include "mdio_test.h"
 #endif
@@ -98,6 +99,8 @@ void kernel_main(void)
 
     /* ================================================== */
     /* Hai Nguyen: init MDIO/PHY + CPSW + Ethernet layer */
+    net_utils_test_run();
+
     mdio_init();
 #ifdef ENABLE_LAYER1_TEST
     mdio_layer1_test();
