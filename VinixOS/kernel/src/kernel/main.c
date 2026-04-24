@@ -255,15 +255,17 @@ uart_printf("[BOOT] *** ARP TX DEBUG VERSION 8c16b56 ***\n");
     /* Final gate: integration selftest (bcache, procfs). Panics on fail. */
     selftest_run_all();
 
+    /* Enable CPU IRQ and CPSW RX BEFORE network tests so wait_event
+     * in arp_resolve can receive ARP replies via ISR. */
+    irq_enable();
+    cpsw_rx_irq_enable();
+
     /* Network Protocol Tests */
     uart_printf("[BOOT] Running Network Protocol Tests...\n");
     extern network_test_results_t network_run_all_tests(void);
     network_run_all_tests();
 
     uart_printf("[BOOT] Boot complete. Starting scheduler...\n");
-
-    irq_enable();
-    cpsw_rx_irq_enable();  /* Enable RX IRQ AFTER CPU IRQ enabled — prevents missed EOI */
     
     // TODO: Fix user app entry point - temporarily disable to prevent crash
     // scheduler_start();

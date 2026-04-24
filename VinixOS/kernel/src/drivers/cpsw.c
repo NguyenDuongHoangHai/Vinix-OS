@@ -307,14 +307,32 @@ static void cpsw_bd_init(void)
 static void cpsw_rx_isr(void *data)
 {
     (void)data;
-    /* NO uart_printf in ISR — must be short */
-    /* FIXED: Don't disable RX - use interrupt pacing control instead */
-    mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
-    s_rx_pending = 1;
-    
-    /* Debug: Set flag to indicate ISR was called */
     static volatile uint32_t rx_isr_count = 0;
     rx_isr_count++;
+
+    /* Write EOI first — unblocks CPDMA for next frame */
+    mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
+
+    /* Process frame inline — scheduler may not be running yet, so we
+     * cannot defer to cpsw_rx_poll()/idle task. Call the callback here
+     * so arp_rx/ipv4_rx runs and wait_event condition becomes true. */
+    uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+    if (!(flags & BD_OWNER)) {
+        uint16_t len = (uint16_t)(flags & 0xFFFFu);
+        if (s_rx_cb && len > 0)
+            s_rx_cb((const uint8_t *)RX_BUF_PA, len);
+
+        /* Acknowledge BD to CPDMA, then re-arm for next frame */
+        mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
+        mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
+        mmio_write32(RX_BD_PA + BD_OFF_BUFLEN, (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
+                     BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
+        mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+    }
+
+    s_rx_pending = 1;   /* keep for cpsw_rx_poll() fallback path */
 }
 
 static void cpsw_rx_irq_init(void)
