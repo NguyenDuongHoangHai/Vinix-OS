@@ -20,6 +20,9 @@
 #include "arp_test.h"
 #include "ipv4_test.h"
 #include "icmp_test.h"
+#include "arp.h"
+#include "ipv4.h"
+#include "icmp.h"
 #include "uart.h"
 #include "string.h"
 

@@ -191,6 +191,52 @@ int icmp_pong(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
     return 0;
 }
 
+int icmp_dest_unreachable(uint32_t dst_ip, uint8_t code,
+                          const void *original_hdr, size_t hdr_len)
+{
+    if (!original_hdr || hdr_len == 0) {
+        uart_printf("[ICMP] dest_unreach: invalid args\n");
+        return -EINVAL;
+    }
+
+    /* RFC 792: icmp_hdr (4B) + unused (4B) + original IP hdr + 8B */
+    size_t pkt_len = sizeof(icmp_hdr_t) + 4 + hdr_len;
+    if (pkt_len > (size_t)(ETH_MAX_PAYLOAD - sizeof(ipv4_hdr_t))) {
+        uart_printf("[ICMP] dest_unreach: payload too large\n");
+        return -EINVAL;
+    }
+
+    uint8_t *packet = (uint8_t *)kmalloc((uint32_t)pkt_len, GFP_KERNEL);
+    if (!packet) {
+        uart_printf("[ICMP] dest_unreach: kmalloc failed\n");
+        atomic_inc(&s_icmp_stats.tx_dropped);
+        return -ENOMEM;
+    }
+
+    icmp_hdr_t *hdr = (icmp_hdr_t *)packet;
+    hdr->type     = ICMP_TYPE_DEST_UNREACH;
+    hdr->code     = code;
+    hdr->checksum = 0;
+
+    memset(packet + sizeof(icmp_hdr_t), 0, 4);
+    memcpy(packet + sizeof(icmp_hdr_t) + 4, original_hdr, hdr_len);
+
+    hdr->checksum = icmp_checksum(packet, pkt_len);
+
+    int ret = ipv4_tx(dst_ip, IPV4_PROTO_ICMP, packet, pkt_len);
+    kfree(packet);
+
+    if (ret != 0) {
+        uart_printf("[ICMP] dest_unreach: ipv4_tx failed %d\n", ret);
+        atomic_inc(&s_icmp_stats.tx_dropped);
+        return -EIO;
+    }
+
+    atomic_inc(&s_icmp_stats.tx_total);
+    uart_printf("[ICMP] dest_unreach: code=%u sent\n", code);
+    return 0;
+}
+
 uint16_t icmp_checksum(const void *data, size_t len)
 {
     uint32_t       sum = 0;
