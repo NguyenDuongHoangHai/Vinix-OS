@@ -291,71 +291,98 @@ static void simple_udivmod(uint32_t n, uint32_t d, uint32_t *q, uint32_t *r)
     *r = remainder;
 }
 
-static void print_uint(uint32_t num, int base)
+/* Format num in given base into buf[] (reversed), return digit count. */
+static int fmt_uint(uint32_t num, int base, int upper, char *buf)
 {
-    char buf[32];
+    const char *digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
     int i = 0;
-    const char *digits = "0123456789abcdef";
-    
-    if (num == 0) {
-        uart_putc('0');
-        return;
-    }
-    
+    if (num == 0) { buf[i++] = '0'; return i; }
     while (num > 0) {
         uint32_t q, r;
         simple_udivmod(num, (uint32_t)base, &q, &r);
         buf[i++] = digits[r];
         num = q;
     }
-    
-    while (i > 0) {
-        uart_putc(buf[--i]);
-    }
+    return i;
+}
+
+/* Print num with optional width, zero/space fill, left/right align. */
+static void print_num_padded(uint32_t num, int base, int upper,
+                              int width, char fill, int left)
+{
+    char buf[32];
+    int  n = fmt_uint(num, base, upper, buf);
+    int  pad = width > n ? width - n : 0;
+    if (!left) while (pad-- > 0) uart_putc(fill);
+    while (n > 0) uart_putc(buf[--n]);
+    if (left)  while (pad-- > 0) uart_putc(' ');
 }
 
 void uart_printf(const char *fmt, ...)
 {
     va_list args;
     const char *p;
-    
+
     va_start(args, fmt);
-    
+
     for (p = fmt; *p; p++) {
         if (*p != '%') {
-            if (*p == '\n')
-                uart_putc('\r');
+            if (*p == '\n') uart_putc('\r');
             uart_putc(*p);
             continue;
         }
-        
         p++;
-        
+
+        /* Flags: '-' left-align, '+' ignored */
+        int left = 0, zero = 0;
+        while (*p == '-' || *p == '+') { if (*p == '-') left = 1; p++; }
+        /* Zero-pad flag */
+        if (*p == '0') { zero = 1; p++; }
+        if (left) zero = 0;
+
+        /* Width */
         int width = 0;
-        if (*p == '0') {
-            p++;
-            while (*p >= '0' && *p <= '9') {
-                width = width * 10 + (*p - '0');
-                p++;
-            }
-        }
-        
+        while (*p >= '0' && *p <= '9') { width = width * 10 + (*p - '0'); p++; }
+
+        /* Length modifier (l, h — same size on 32-bit, skip) */
+        if (*p == 'l' || *p == 'h') p++;
+
         switch (*p) {
-        case 'd':
+        case 'd': {
+            int32_t sv = va_arg(args, int32_t);
+            int neg = sv < 0;
+            if (neg) sv = -sv;
+            char dbuf[12]; int dn = fmt_uint((uint32_t)sv, 10, 0, dbuf);
+            int dtotal = dn + (neg ? 1 : 0);
+            int dpad = width > dtotal ? width - dtotal : 0;
+            if (!left) while (dpad-- > 0) uart_putc(zero ? '0' : ' ');
+            if (neg) uart_putc('-');
+            while (dn > 0) uart_putc(dbuf[--dn]);
+            if (left) while (dpad-- > 0) uart_putc(' ');
+            break;
+        }
         case 'u':
-            print_uint(va_arg(args, uint32_t), 10);
+            print_num_padded(va_arg(args, uint32_t), 10, 0, width,
+                             zero ? '0' : ' ', left);
             break;
         case 'x':
+            print_num_padded(va_arg(args, uint32_t), 16, 0, width,
+                             zero ? '0' : ' ', left);
+            break;
         case 'X':
-            print_uint(va_arg(args, uint32_t), 16);
+            print_num_padded(va_arg(args, uint32_t), 16, 1, width,
+                             zero ? '0' : ' ', left);
             break;
-        case 's':
-            {
-                const char *s = va_arg(args, const char *);
-                if (s) uart_puts(s);
-                else uart_puts("(null)");
-            }
+        case 's': {
+            const char *s = va_arg(args, const char *);
+            if (!s) s = "(null)";
+            int slen = 0; const char *q = s; while (*q) { slen++; q++; }
+            int pad = width > slen ? width - slen : 0;
+            if (!left) while (pad-- > 0) uart_putc(' ');
+            uart_puts(s);
+            if (left)  while (pad-- > 0) uart_putc(' ');
             break;
+        }
         case 'c':
             uart_putc((char)va_arg(args, int));
             break;
@@ -368,7 +395,7 @@ void uart_printf(const char *fmt, ...)
             break;
         }
     }
-    
+
     va_end(args);
 }
 
