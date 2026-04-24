@@ -45,7 +45,13 @@ void intc_enable_irq(uint32_t irq_num)
     uint32_t bank = irq_num / 32;
     uint32_t bit = irq_num % 32;
 
-    mmio_write32(INTC_BASE + INTC_MIR_CLEAR(bank), (1 << bit));
+    uint32_t addr = INTC_BASE + INTC_MIR_CLEAR(bank);
+    uint32_t value = (1 << bit);
+    mmio_write32(addr, value);
+    
+    uint32_t mir_after = mmio_read32(INTC_BASE + INTC_MIR(bank));
+    uart_printf("[INTC] DEBUG: Enabled IRQ %u (bank %u, bit %u), MIR%u before=0x%08x after=0x%08x\n", 
+                irq_num, bank, bit, bank, 0xFFFFFFFF, mir_after);
 }
 
 void intc_disable_irq(uint32_t irq_num)
