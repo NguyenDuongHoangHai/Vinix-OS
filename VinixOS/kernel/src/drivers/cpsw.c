@@ -406,30 +406,33 @@ static void cpsw_rx_irq_init(void)
     /* Kick HDP */
     mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
 
-    /* FIXED: Enable CPDMA RX interrupt - was masked! */
-    mmio_write32(CPDMA_RX_INTMASK_CLEAR, 0x1u);
+    /* Register ISR and enable INTC IRQ BEFORE enabling MAC and CPDMA RX.
+     * If MAC were enabled first, a frame could arrive before the ISR is
+     * registered, consuming the BD without processing it — all subsequent
+     * frames would be dropped because no re-arm occurs. */
+    irq_register_handler(IRQ_CPSW_RX, cpsw_rx_isr, 0);
+    intc_enable_irq(IRQ_CPSW_RX);
 
-    /* Enable RX channel */
+    /* Enable CPDMA RX channel interrupt (channel 0).
+     * INTMASK_SET: write 1 = ENABLE. INTMASK_CLEAR: write 1 = DISABLE.
+     * Previous code used INTMASK_CLEAR here — ISR never fired. */
+    mmio_write32(CPDMA_RX_INTMASK_SET, 0x1u);
+
+    /* Enable RX channel — CPDMA now accepts frames */
     mmio_write32(CPDMA_RX_CONTROL, CPDMA_RX_EN);
 
     /* Enable CPSW_WR interrupt pacing */
     mmio_write32(CPSW_WR_C0_RX_EN, 0x1u);
 
-    /* Re-enable MAC — now CPDMA is ready to receive */
+    /* Re-enable MAC last — ISR is ready, CPDMA is armed */
     mmio_write32(SL1_MACCONTROL, MAC_FULLDUPLEX | MAC_GMII_EN);
 
-    /* Log state */
+    uart_printf("[CPSW] RX interrupt enabled (IRQ %u)\n", IRQ_CPSW_RX);
     uart_printf("[CPSW] DMASTATUS after RX enable = 0x%08x\n",
                 mmio_read32(CPDMA_DMASTATUS));
     uart_printf("[CPSW] RX0_HDP = 0x%08x  BD_FLAGS = 0x%08x\n",
                 mmio_read32(STATERAM_RX0_HDP),
                 mmio_read32(RX_BD_PA + BD_OFF_FLAGS));
-
-    /* Register ISR */
-    irq_register_handler(IRQ_CPSW_RX, cpsw_rx_isr, 0);
-    intc_enable_irq(IRQ_CPSW_RX);
-
-    uart_printf("[CPSW] RX interrupt enabled (IRQ %u)\n", IRQ_CPSW_RX);
     
     /* DEBUG: Check interrupt controller status */
     uint32_t mir0 = mmio_read32(INTC_BASE + INTC_MIR(0));
