@@ -1,35 +1,31 @@
 /* ============================================================
- * arp.c
- * ------------------------------------------------------------
- * ARP Protocol — Address Resolution Protocol (RFC 826)
- *
- * Trách nhiệm:
- *   - Resolve IP address to MAC address
- *   - Manage ARP cache
- *   - Handle ARP requests/replies
- *
- * Dependencies:
- *   - ether.h: ether_tx(), ether_set_arp_handler()
- *   - uart.h: uart_printf()
- *   - string.h: memcpy(), memset()
+ * arp.c — ARP Protocol (RFC 826)
  * ============================================================ */
 
 #include "arp.h"
 #include "ether.h"
 #include "uart.h"
 #include "string.h"
+#include "spinlock.h"
+#include "wait_queue.h"
+#include "timer.h"
+#include "errno.h"
 
 /* ============================================================
  * Static State
  * ============================================================ */
 
-uint32_t s_my_ip = 0;
-static uint8_t  s_my_mac[6] = {0};
+uint32_t s_my_ip  = 0;
+static uint8_t s_my_mac[6] = {0};
+
 static arp_cache_entry_t s_cache[ARP_CACHE_SIZE];
-static uint32_t s_cache_timeout = 60; /* 60 seconds timeout */
+static spinlock_t        s_cache_lock = SPINLOCK_INIT;
+
+/* wait queue: arp_resolve blocks here until arp_rx calls wake_up */
+static wait_queue_head_t s_arp_wq;
 
 /* ============================================================
- * Helper Functions
+ * Byte-swap helpers (no system header available in kernel)
  * ============================================================ */
 
 static inline uint16_t bswap16(uint16_t v)
@@ -39,20 +35,21 @@ static inline uint16_t bswap16(uint16_t v)
 
 static inline uint32_t bswap32(uint32_t v)
 {
-    return ((v & 0x000000FF) << 24) |
-           ((v & 0x0000FF00) << 8)  |
-           ((v & 0x00FF0000) >> 8)  |
-           ((v & 0xFF000000) >> 24);
+    return ((v & 0x000000FFu) << 24) |
+           ((v & 0x0000FF00u) <<  8) |
+           ((v & 0x00FF0000u) >>  8) |
+           ((v & 0xFF000000u) >> 24);
 }
+
+/* ============================================================
+ * Print helpers
+ * ============================================================ */
 
 static void arp_print_ip(uint32_t ip)
 {
-    /* IP is stored in network byte order (big-endian) */
     uart_printf("%u.%u.%u.%u",
-                (ip >> 24) & 0xFF,
-                (ip >> 16) & 0xFF,
-                (ip >> 8) & 0xFF,
-                ip & 0xFF);
+                (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
+                (ip >>  8) & 0xFF,  ip         & 0xFF);
 }
 
 static void arp_print_mac(const uint8_t mac[6])
@@ -62,249 +59,230 @@ static void arp_print_mac(const uint8_t mac[6])
 }
 
 /* ============================================================
- * ARP Cache Management
+ * Cache — internal (caller must hold s_cache_lock)
  * ============================================================ */
 
+/* Returns index of a valid, non-expired entry matching ip, or -1. */
 static int cache_find_entry(uint32_t ip)
 {
+    uint32_t now = timer_get_ticks();
+
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
-        if (s_cache[i].valid && s_cache[i].ip == ip) {
-            return i;
+        if (!s_cache[i].valid)
+            continue;
+
+        /* Expire stale entries on the fly */
+        if ((now - s_cache[i].created_ticks) > ARP_CACHE_TIMEOUT_TICKS) {
+            uart_printf("[ARP] cache expired: ");
+            arp_print_ip(s_cache[i].ip);
+            uart_printf("\n");
+            s_cache[i].valid = 0;
+            continue;
         }
+
+        if (s_cache[i].ip == ip)
+            return i;
     }
     return -1;
 }
 
+/* Returns index of a free slot, or evicts index 0 (simple FIFO). */
 static int cache_find_free(void)
 {
     for (int i = 0; i < ARP_CACHE_SIZE; i++) {
-        if (!s_cache[i].valid) {
+        if (!s_cache[i].valid)
             return i;
-        }
     }
-    /* Cache full - use LRU (simple: use first entry) */
-    return 0;
+    return 0;   /* cache full — evict oldest (slot 0) */
 }
-
 
 /* ============================================================
- * Public API
+ * Public cache API
  * ============================================================ */
-
-void arp_init(void)
-{
-    memset(s_cache, 0, sizeof(s_cache));
-    uart_printf("[ARP] init IP=");
-    arp_print_ip(s_my_ip);
-    uart_printf(" (raw=0x%08x)\n", s_my_ip);
-}
-
-void arp_set_my_ip(uint32_t ip)
-{
-    s_my_ip = ip;
-}
-
-void arp_set_my_mac(const uint8_t mac[6])
-{
-    memcpy(s_my_mac, mac, 6);
-}
 
 int arp_cache_lookup(uint32_t ip, uint8_t mac[6])
 {
+    uint32_t flags = spin_lock_irqsave(&s_cache_lock);
     int idx = cache_find_entry(ip);
-    if (idx >= 0) {
+    if (idx >= 0)
         memcpy(mac, s_cache[idx].mac, 6);
-        return 0;
-    }
-    return -1;
+    spin_unlock_irqrestore(&s_cache_lock, flags);
+    return (idx >= 0) ? 0 : -EINVAL;
 }
 
 void arp_cache_update(uint32_t ip, const uint8_t mac[6])
 {
+    uint32_t flags = spin_lock_irqsave(&s_cache_lock);
+
     int idx = cache_find_entry(ip);
-    if (idx < 0) {
+    if (idx < 0)
         idx = cache_find_free();
-        s_cache[idx].ip = ip;
-    }
-    
+
+    s_cache[idx].ip            = ip;
+    s_cache[idx].created_ticks = timer_get_ticks();
+    s_cache[idx].valid         = 1;
     memcpy(s_cache[idx].mac, mac, 6);
-    s_cache[idx].timeout = s_cache_timeout;
-    s_cache[idx].valid = 1;
-    
+
+    spin_unlock_irqrestore(&s_cache_lock, flags);
+
     uart_printf("[ARP] cache update: ");
     arp_print_ip(ip);
     uart_printf(" -> ");
     arp_print_mac(mac);
     uart_printf("\n");
+
+    /* Wake any task blocked in arp_resolve() */
+    wake_up(&s_arp_wq);
 }
 
 void arp_cache_flush(void)
 {
+    uint32_t flags = spin_lock_irqsave(&s_cache_lock);
     memset(s_cache, 0, sizeof(s_cache));
+    spin_unlock_irqrestore(&s_cache_lock, flags);
     uart_printf("[ARP] cache flushed\n");
 }
 
 /* ============================================================
- * Internal Functions
+ * Init / config
+ * ============================================================ */
+
+void arp_init(void)
+{
+    memset(s_cache, 0, sizeof(s_cache));
+    wait_queue_init(&s_arp_wq);
+    uart_printf("[ARP] init IP=");
+    arp_print_ip(s_my_ip);
+    uart_printf("\n");
+}
+
+void arp_set_my_ip(uint32_t ip)  { s_my_ip = ip; }
+void arp_set_my_mac(const uint8_t mac[6]) { memcpy(s_my_mac, mac, 6); }
+
+/* ============================================================
+ * TX helpers
  * ============================================================ */
 
 static void arp_send_request(uint32_t target_ip)
 {
     static const uint8_t bcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-    
+
     arp_pkt_t pkt;
     memset(&pkt, 0, sizeof(pkt));
-    
+
     pkt.hw_type    = bswap16(ARP_HW_TYPE_ETHER);
     pkt.proto_type = bswap16(ARP_PROTO_TYPE_IPV4);
     pkt.hw_len     = 6;
     pkt.proto_len  = 4;
     pkt.opcode     = bswap16(ARP_OPCODE_REQUEST);
-    
+
     memcpy(pkt.sender_mac, s_my_mac, 6);
     pkt.sender_ip  = s_my_ip;
-    memcpy(pkt.target_mac, bcast, 6);  /* Broadcast */
+    memset(pkt.target_mac, 0, 6);
     pkt.target_ip  = target_ip;
-    
-    uart_printf("[ARP] Sending who-has ");
+
+    uart_printf("[ARP] who-has ");
     arp_print_ip(target_ip);
-    uart_printf("\n");
-    uart_printf("[ARP] My MAC: ");
-    arp_print_mac(s_my_mac);
-    uart_printf("\n");
-    uart_printf("[ARP] My IP: ");
+    uart_printf(" tell ");
     arp_print_ip(s_my_ip);
     uart_printf("\n");
-    
-    /* Debug: packet dump */
-    uart_printf("[ARP] packet dump (%u bytes):\n", ARP_PKT_LEN);
-    uint8_t *data = (uint8_t*)&pkt;
-    for (int i = 0; i < ARP_PKT_LEN; i++) {
-        if (i % 16 == 0) uart_printf("[ARP] %d: ", i);
-        uart_printf("%02x ", data[i]);
-        if (i % 16 == 15) uart_printf("\n");
-    }
-    if (ARP_PKT_LEN % 16 != 0) uart_printf("\n");
-    
-    int ret = ether_tx(bcast, ETHERTYPE_ARP, (uint8_t*)&pkt, ARP_PKT_LEN);
-    if (ret == 0) {
-        uart_printf("[ARP] ARP request queued for TX\n");
-    } else {
-        uart_printf("[ARP] ARP request TX failed: %d\n", ret);
-    }
+
+    int ret = ether_tx(bcast, ETHERTYPE_ARP, (uint8_t *)&pkt, ARP_PKT_LEN);
+    if (ret != 0)
+        uart_printf("[ARP] request TX failed: %d\n", ret);
 }
 
 static void arp_send_reply(uint32_t target_ip, const uint8_t target_mac[6])
 {
     arp_pkt_t pkt;
     memset(&pkt, 0, sizeof(pkt));
-    
+
     pkt.hw_type    = bswap16(ARP_HW_TYPE_ETHER);
     pkt.proto_type = bswap16(ARP_PROTO_TYPE_IPV4);
     pkt.hw_len     = 6;
     pkt.proto_len  = 4;
     pkt.opcode     = bswap16(ARP_OPCODE_REPLY);
-    
+
     memcpy(pkt.sender_mac, s_my_mac, 6);
     pkt.sender_ip  = s_my_ip;
     memcpy(pkt.target_mac, target_mac, 6);
     pkt.target_ip  = target_ip;
-    
-    uart_printf("[ARP] Reply -> ");
+
+    uart_printf("[ARP] is-at reply -> ");
     arp_print_ip(target_ip);
     uart_printf("\n");
-    
-    uart_printf("[ARP] TX: target_mac=");
-    arp_print_mac(target_mac);
-    uart_printf(" my_mac=");
-    arp_print_mac(s_my_mac);
-    uart_printf("\n");
-    
-    int ret = ether_tx(target_mac, ETHERTYPE_ARP, (uint8_t*)&pkt, ARP_PKT_LEN);
-    if (ret != 0) {
-        uart_printf("[ARP] ARP reply TX failed: %d\n", ret);
-    } else {
-        uart_printf("[ARP] ARP reply TX success\n");
-    }
+
+    int ret = ether_tx(target_mac, ETHERTYPE_ARP, (uint8_t *)&pkt, ARP_PKT_LEN);
+    if (ret != 0)
+        uart_printf("[ARP] reply TX failed: %d\n", ret);
 }
+
+/* ============================================================
+ * RX
+ * ============================================================ */
 
 void arp_rx(const uint8_t *payload, uint16_t len)
 {
     if (len < ARP_PKT_LEN) {
-        uart_printf("[ARP] RX: packet too short (%u), drop\n", len);
+        uart_printf("[ARP] RX: too short (%u), drop\n", len);
         return;
     }
-    
-    const arp_pkt_t *pkt = (const arp_pkt_t*)payload;
-    
-    /* Verify packet format */
-    if (bswap16(pkt->hw_type) != ARP_HW_TYPE_ETHER ||
+
+    const arp_pkt_t *pkt = (const arp_pkt_t *)payload;
+
+    if (bswap16(pkt->hw_type)    != ARP_HW_TYPE_ETHER  ||
         bswap16(pkt->proto_type) != ARP_PROTO_TYPE_IPV4 ||
-        pkt->hw_len != 6 || pkt->proto_len != 4) {
-        uart_printf("[ARP] RX: invalid packet format\n");
+        pkt->hw_len    != 6 || pkt->proto_len != 4) {
+        uart_printf("[ARP] RX: invalid format, drop\n");
         return;
     }
-    
-    uint16_t opcode = bswap16(pkt->opcode);
+
+    uint16_t opcode    = bswap16(pkt->opcode);
     uint32_t sender_ip = bswap32(pkt->sender_ip);
     uint32_t target_ip = bswap32(pkt->target_ip);
-    
-    uart_printf("[ARP] RX: opcode=%u, sender=", opcode);
+
+    uart_printf("[ARP] RX: opcode=%u sender=", opcode);
     arp_print_ip(sender_ip);
-    uart_printf(", target=");
+    uart_printf(" target=");
     arp_print_ip(target_ip);
     uart_printf("\n");
-    
-    /* Update cache with sender info */
+
+    /* Always learn sender MAC/IP */
     arp_cache_update(sender_ip, pkt->sender_mac);
-    
-    /* Process packet */
-    uart_printf("[ARP] Checking: opcode=%u, target_ip=", opcode);
-    arp_print_ip(target_ip);
-    uart_printf(", my_ip=");
-    arp_print_ip(s_my_ip);
-    uart_printf("\n");
-    
+    /* wake_up called inside arp_cache_update */
+
     if (opcode == ARP_OPCODE_REQUEST && target_ip == s_my_ip) {
-        /* ARP request for us - send reply */
-        uart_printf("[ARP] Got request for us, sending reply\n");
+        uart_printf("[ARP] answering who-has for us\n");
         arp_send_reply(sender_ip, pkt->sender_mac);
-    } else if (opcode == ARP_OPCODE_REPLY) {
-        /* ARP reply - cache already updated */
-        uart_printf("[ARP] Got reply, cache updated\n");
-    } else {
-        uart_printf("[ARP] Not our request - ignoring\n");
     }
 }
 
+/* ============================================================
+ * Resolve
+ * ============================================================ */
+
 int arp_resolve(uint32_t ip, uint8_t mac[6])
 {
-    /* Check cache first */
-    if (arp_cache_lookup(ip, mac) == 0) {
+    /* Fast path — already cached */
+    if (arp_cache_lookup(ip, mac) == 0)
         return 0;
-    }
-    
-    /* Send ARP request */
-    arp_send_request(ip);
-    
-    /* Wait for reply (simple polling) */
-    uint32_t timeout = 50000; /* ~5 seconds */
-    while (timeout > 0) {
-        if (arp_cache_lookup(ip, mac) == 0) {
+
+    /* Send request and block until arp_rx() updates the cache.
+     * wake_up(&s_arp_wq) is called from arp_cache_update().
+     * Retry ARP_RESOLVE_RETRIES times; a timer watchdog (M5) will
+     * be needed to guarantee bounded timeout when host is unreachable. */
+    for (int retry = 0; retry < ARP_RESOLVE_RETRIES; retry++) {
+        uart_printf("[ARP] resolve: sending request (retry %d)\n", retry);
+        arp_send_request(ip);
+
+        wait_event(s_arp_wq, arp_cache_lookup(ip, mac) == 0);
+
+        if (arp_cache_lookup(ip, mac) == 0)
             return 0;
-        }
-        
-        /* Simple delay */
-        for (volatile int i = 0; i < 1000; i++);
-        timeout -= 1000;
-        
-        if (timeout % 10000 == 0) {
-            uart_printf("[ARP] still polling... %u\n", timeout/1000);
-        }
     }
-    
-    uart_printf("[ARP] timeout resolving ");
+
+    uart_printf("[ARP] resolve: timeout for ");
     arp_print_ip(ip);
     uart_printf("\n");
-    return -1;
+    return -EAGAIN;
 }

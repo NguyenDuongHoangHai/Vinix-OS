@@ -1,90 +1,76 @@
 /* ============================================================
  * ipv4.h
  * ------------------------------------------------------------
- * IPv4 Protocol Implementation
- *
- * Trách nhiệm:
- *   - IPv4 packet processing
- *   - IP header validation
- *   - Fragmentation support (basic)
- *   - Routing and forwarding
- *
- * Dependencies:
- *   - ether.h: Ethernet layer
- *   - arp.h: ARP for MAC resolution
- *   - uart.h: Debug output
+ * IPv4 Protocol — RFC 791
+ * Scope: header build/parse, one's-complement checksum,
+ * single static route (1 gateway). Fragmented packets are
+ * hard-dropped with a warning — no reassembly.
  * ============================================================ */
 
 #ifndef IPV4_H
 #define IPV4_H
 
 #include "types.h"
+#include "atomic.h"
 
 /* ============================================================
- * IPv4 Header Constants
+ * Constants
  * ============================================================ */
 
-#define IPV4_HDR_LEN      20      /* Minimum IPv4 header length */
-#define IPV4_MAX_HDR_LEN  60      /* Maximum IPv4 header length */
-#define IPV4_MAX_PACKET   65535   /* Maximum IPv4 packet size */
-#define IPV4_TTL_DEFAULT  64      /* Default Time To Live */
+#define IPV4_HDR_LEN      20
+#define IPV4_TTL_DEFAULT  64
 
-/* IPv4 Protocol numbers */
-#define IPV4_PROTO_ICMP   1       /* Internet Control Message Protocol */
-#define IPV4_PROTO_TCP    6       /* Transmission Control Protocol */
-#define IPV4_PROTO_UDP    17      /* User Datagram Protocol */
+/* Protocol numbers */
+#define IPV4_PROTO_ICMP    1
+#define IPV4_PROTO_TCP     6
+#define IPV4_PROTO_UDP    17
 
-/* IPv4 Header structure (20 bytes minimum) */
+/* Flags in flags_frag field (network byte order, upper bits) */
+#define IPV4_FLAG_MF      0x2000   /* More Fragments — LE view after bswap16 */
+#define IPV4_FRAG_OFF_MASK 0x1FFF  /* 13-bit fragment offset */
+
+/* ============================================================
+ * IPv4 Header — 20 bytes minimum, network byte order
+ * ============================================================ */
+
 typedef struct __attribute__((packed)) {
-    uint8_t  ver_ihl;        /* Version (4) + IHL (Header Length) */
-    uint8_t  dscp_ecn;       /* DSCP + ECN */
-    uint16_t total_len;      /* Total length */
-    uint16_t identification; /* Identification */
-    uint16_t flags_frag;     /* Flags + Fragment offset */
-    uint8_t  ttl;            /* Time To Live */
-    uint8_t  protocol;       /* Protocol */
-    uint16_t hdr_checksum;   /* Header checksum */
-    uint32_t src_ip;         /* Source IP address */
-    uint32_t dst_ip;         /* Destination IP address */
-    /* Options may follow if IHL > 5 */
+    uint8_t  ver_ihl;
+    uint8_t  dscp_ecn;
+    uint16_t total_len;
+    uint16_t identification;
+    uint16_t flags_frag;
+    uint8_t  ttl;
+    uint8_t  protocol;
+    uint16_t hdr_checksum;
+    uint32_t src_ip;
+    uint32_t dst_ip;
 } ipv4_hdr_t;
 
 /* ============================================================
- * IPv4 Statistics
+ * Statistics — all fields atomic_t per handoff rule
  * ============================================================ */
 
 typedef struct {
-    uint32_t rx_total;
-    uint32_t rx_dropped;
-    uint32_t rx_checksum_err;
-    uint32_t rx_version_err;
-    uint32_t rx_hdr_len_err;
-    uint32_t tx_total;
-    uint32_t tx_dropped;
+    atomic_t rx_total;
+    atomic_t rx_dropped;
+    atomic_t rx_checksum_err;
+    atomic_t rx_version_err;
+    atomic_t rx_hdr_len_err;
+    atomic_t rx_frag_drop;
+    atomic_t tx_total;
+    atomic_t tx_dropped;
 } ipv4_stats_t;
 
 /* ============================================================
  * Public Interface
  * ============================================================ */
 
-/* Initialize IPv4 subsystem */
-void ipv4_init(void);
-
-/* Process incoming IPv4 packet */
-/* Called from Ethernet layer */
-void ipv4_rx(const uint8_t *payload, uint16_t len);
-
-/* Send IPv4 packet */
-/* Returns 0 on success, -1 on error */
-int ipv4_tx(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len);
-
-/* Calculate IPv4 header checksum */
+void     ipv4_init(void);
+void     ipv4_rx(const uint8_t *payload, uint16_t len);
+int      ipv4_tx(uint32_t dst_ip, uint8_t protocol,
+                 const void *data, size_t len);
 uint16_t ipv4_checksum(const ipv4_hdr_t *hdr);
-
-/* Get IPv4 statistics */
 const ipv4_stats_t *ipv4_get_stats(void);
-
-/* Format IPv4 address for printing */
-void ipv4_print_ip(uint32_t ip);
+void     ipv4_print_ip(uint32_t ip);
 
 #endif /* IPV4_H */

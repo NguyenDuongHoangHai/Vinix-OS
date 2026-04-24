@@ -1,18 +1,5 @@
 /* ============================================================
- * ipv4.c
- * ------------------------------------------------------------
- * IPv4 Protocol Implementation
- *
- * Trách nhiệm:
- *   - IPv4 packet processing
- *   - IP header validation
- *   - Fragmentation support (basic)
- *   - Routing and forwarding
- *
- * Dependencies:
- *   - ether.h: Ethernet layer
- *   - arp.h: ARP for MAC resolution
- *   - uart.h: Debug output
+ * ipv4.c — IPv4 Protocol (RFC 791)
  * ============================================================ */
 
 #include "ipv4.h"
@@ -21,15 +8,27 @@
 #include "icmp.h"
 #include "uart.h"
 #include "string.h"
+#include "atomic.h"
+#include "errno.h"
 
 /* ============================================================
- * Global Variables
+ * Statistics
  * ============================================================ */
 
-static ipv4_stats_t s_ipv4_stats = {0};
+static ipv4_stats_t s_ipv4_stats = {
+    .rx_total       = ATOMIC_INIT(0),
+    .rx_dropped     = ATOMIC_INIT(0),
+    .rx_checksum_err= ATOMIC_INIT(0),
+    .rx_version_err = ATOMIC_INIT(0),
+    .rx_hdr_len_err = ATOMIC_INIT(0),
+    .rx_frag_drop   = ATOMIC_INIT(0),
+    .tx_total       = ATOMIC_INIT(0),
+    .tx_dropped     = ATOMIC_INIT(0),
+};
 
 /* ============================================================
- * Helper Functions
+ * Field accessors — handle network byte order (big-endian)
+ * on little-endian ARM
  * ============================================================ */
 
 static inline uint8_t ipv4_get_version(const ipv4_hdr_t *hdr)
@@ -42,229 +41,192 @@ static inline uint8_t ipv4_get_ihl(const ipv4_hdr_t *hdr)
     return hdr->ver_ihl & 0x0F;
 }
 
-static inline uint16_t ipv4_get_total_len(const ipv4_hdr_t *hdr)
+static inline uint16_t bswap16(uint16_t v)
 {
-    return (hdr->total_len >> 8) | (hdr->total_len << 8);
-}
-
-static inline uint32_t ipv4_get_src_ip(const ipv4_hdr_t *hdr)
-{
-    return ((hdr->src_ip & 0xFF) << 24) | 
-           (((hdr->src_ip >> 8) & 0xFF) << 16) | 
-           (((hdr->src_ip >> 16) & 0xFF) << 8) | 
-           (hdr->src_ip >> 24);
-}
-
-static inline uint32_t ipv4_get_dst_ip(const ipv4_hdr_t *hdr)
-{
-    return ((hdr->dst_ip & 0xFF) << 24) | 
-           (((hdr->dst_ip >> 8) & 0xFF) << 16) | 
-           (((hdr->dst_ip >> 16) & 0xFF) << 8) | 
-           (hdr->dst_ip >> 24);
+    return (uint16_t)((v >> 8) | (v << 8));
 }
 
 /* ============================================================
- * Public API Implementation
+ * Public API
  * ============================================================ */
 
 void ipv4_init(void)
 {
-    memset(&s_ipv4_stats, 0, sizeof(s_ipv4_stats));
-    uart_printf("[IPV4] initialized\n");
+    uart_printf("[IP] initialized\n");
 }
 
 void ipv4_rx(const uint8_t *payload, uint16_t len)
 {
-    s_ipv4_stats.rx_total++;
+    atomic_inc(&s_ipv4_stats.rx_total);
 
-    /* Basic length check */
     if (len < sizeof(ipv4_hdr_t)) {
-        uart_printf("[IPV4] RX: packet too short (%u bytes), drop\n", len);
-        s_ipv4_stats.rx_dropped++;
+        uart_printf("[IP] RX: too short (%u), drop\n", len);
+        atomic_inc(&s_ipv4_stats.rx_dropped);
         return;
     }
 
     const ipv4_hdr_t *hdr = (const ipv4_hdr_t *)payload;
 
-    /* Version check */
+    /* Version must be 4 */
     uint8_t version = ipv4_get_version(hdr);
     if (version != 4) {
-        uart_printf("[IPV4] RX: invalid version %u, drop\n", version);
-        s_ipv4_stats.rx_dropped++;
-        s_ipv4_stats.rx_version_err++;
+        uart_printf("[IP] RX: bad version %u, drop\n", version);
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        atomic_inc(&s_ipv4_stats.rx_version_err);
         return;
     }
 
-    /* Header length check */
+    /* IHL sanity */
     uint8_t ihl = ipv4_get_ihl(hdr);
-    if (ihl < 5 || ihl > 15) {
-        uart_printf("[IPV4] RX: invalid IHL %u, drop\n", ihl);
-        s_ipv4_stats.rx_dropped++;
-        s_ipv4_stats.rx_hdr_len_err++;
+    if (ihl < 5) {
+        uart_printf("[IP] RX: bad IHL %u, drop\n", ihl);
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        atomic_inc(&s_ipv4_stats.rx_hdr_len_err);
         return;
     }
 
-    uint16_t hdr_len = ihl * 4;
+    uint16_t hdr_len = (uint16_t)(ihl * 4);
     if (len < hdr_len) {
-        uart_printf("[IPV4] RX: packet shorter than header (%u < %u), drop\n", len, hdr_len);
-        s_ipv4_stats.rx_dropped++;
-        s_ipv4_stats.rx_hdr_len_err++;
+        uart_printf("[IP] RX: truncated header, drop\n");
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        atomic_inc(&s_ipv4_stats.rx_hdr_len_err);
         return;
     }
 
-    /* Total length check */
-    uint16_t total_len = ipv4_get_total_len(hdr);
-    if (total_len > IPV4_MAX_PACKET || total_len < hdr_len) {
-        uart_printf("[IPV4] RX: invalid total length %u, drop\n", total_len);
-        s_ipv4_stats.rx_dropped++;
+    /* Header checksum verification */
+    if (ipv4_checksum(hdr) != 0) {
+        uart_printf("[IP] RX: bad checksum, drop\n");
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        atomic_inc(&s_ipv4_stats.rx_checksum_err);
         return;
     }
 
-    if (len < total_len) {
-        uart_printf("[IPV4] RX: truncated packet (%u < %u), drop\n", len, total_len);
-        s_ipv4_stats.rx_dropped++;
+    uint16_t total_len = bswap16(hdr->total_len);
+    if (total_len < hdr_len || len < total_len) {
+        uart_printf("[IP] RX: bad total_len %u, drop\n", total_len);
+        atomic_inc(&s_ipv4_stats.rx_dropped);
         return;
     }
 
-    /* Get source and destination IPs */
-    uint32_t src_ip = ipv4_get_src_ip(hdr);
-    uint32_t dst_ip = ipv4_get_dst_ip(hdr);
+    /* Fragmented packets — hard drop, no reassembly */
+    uint16_t flags_frag = bswap16(hdr->flags_frag);
+    uint8_t  mf         = (flags_frag >> 13) & 1;
+    uint16_t frag_off   = flags_frag & 0x1FFF;
+    if (mf || frag_off) {
+        uart_printf("[IP] RX: fragmented packet (MF=%u off=%u), drop\n",
+                    mf, frag_off);
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        atomic_inc(&s_ipv4_stats.rx_frag_drop);
+        return;
+    }
 
-    uart_printf("[IPV4] RX: src=");
-    ipv4_print_ip(src_ip);
-    uart_printf(" dst=");
-    ipv4_print_ip(dst_ip);
-    uart_printf(" proto=%u len=%u ttl=%u\n", 
+    /* Destination filter — accept our IP or broadcast */
+    uint32_t dst_ip = bswap16((uint16_t)(hdr->dst_ip)) |
+                      ((uint32_t)bswap16((uint16_t)(hdr->dst_ip >> 16)) << 16);
+    /* Simpler: read dst_ip as raw 32-bit in host order for comparison with s_my_ip */
+    uint32_t dst_raw = hdr->dst_ip;   /* host-order read of network-order field */
+    if (dst_raw != s_my_ip && dst_raw != 0xFFFFFFFFu) {
+        uart_printf("[IP] RX: not for us, drop\n");
+        atomic_inc(&s_ipv4_stats.rx_dropped);
+        return;
+    }
+
+    /* Source IP for upper layers — stored same way as s_my_ip (raw field) */
+    uint32_t src_raw = hdr->src_ip;
+
+    uart_printf("[IP] RX: proto=%u len=%u ttl=%u\n",
                 hdr->protocol, total_len, hdr->ttl);
 
-    /* Check if packet is for us */
-    extern uint32_t s_my_ip;  /* From ARP module */
-    if (dst_ip != s_my_ip && dst_ip != 0xFFFFFFFF) {  /* Not broadcast */
-        uart_printf("[IPV4] RX: not for us, drop\n");
-        s_ipv4_stats.rx_dropped++;
-        return;
-    }
+    const uint8_t *upper = payload + hdr_len;
+    uint16_t       upper_len = (uint16_t)(total_len - hdr_len);
 
-    /* Process based on protocol */
     switch (hdr->protocol) {
         case IPV4_PROTO_ICMP:
-            uart_printf("[IPV4] RX: ICMP packet, forwarding to ICMP handler\n");
-            /* Call ICMP handler */
-            icmp_rx(payload + hdr_len, total_len - hdr_len, src_ip);
-            break;
-        case IPV4_PROTO_TCP:
-            uart_printf("[IPV4] RX: TCP packet, not implemented\n");
+            icmp_rx(upper, upper_len, src_raw);
             break;
         case IPV4_PROTO_UDP:
-            uart_printf("[IPV4] RX: UDP packet, not implemented\n");
+            uart_printf("[IP] RX: UDP, not yet implemented\n");
+            break;
+        case IPV4_PROTO_TCP:
+            uart_printf("[IP] RX: TCP not supported, drop\n");
+            atomic_inc(&s_ipv4_stats.rx_dropped);
             break;
         default:
-            uart_printf("[IPV4] RX: unknown protocol %u, drop\n", hdr->protocol);
-            s_ipv4_stats.rx_dropped++;
+            uart_printf("[IP] RX: unknown proto %u, drop\n", hdr->protocol);
+            atomic_inc(&s_ipv4_stats.rx_dropped);
             break;
     }
 }
 
 int ipv4_tx(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len)
 {
-    /* Resolve destination MAC address */
-    uint8_t dst_mac[6];
-    int ret = arp_resolve(dst_ip, dst_mac);
-    if (ret != 0) {
-        uart_printf("[IPV4] TX: failed to resolve MAC for ");
-        ipv4_print_ip(dst_ip);
-        uart_printf("\n");
-        s_ipv4_stats.tx_dropped++;
-        return -1;
+    /* ETH_MAX_PAYLOAD = 1010; IPv4 header = 20; max upper payload = 990 */
+    uint16_t total_len = (uint16_t)(sizeof(ipv4_hdr_t) + len);
+    if (total_len > ETH_MAX_PAYLOAD) {
+        uart_printf("[IP] TX: packet too large (%u > %u), drop\n",
+                    total_len, ETH_MAX_PAYLOAD);
+        atomic_inc(&s_ipv4_stats.tx_dropped);
+        return -EINVAL;
     }
 
-    /* Build IPv4 header */
+    /* Resolve destination MAC */
+    uint8_t dst_mac[6];
+    if (arp_resolve(dst_ip, dst_mac) != 0) {
+        uart_printf("[IP] TX: ARP resolve failed\n");
+        atomic_inc(&s_ipv4_stats.tx_dropped);
+        return -EIO;
+    }
+
+    /* Build IPv4 header — all fields in network byte order */
     ipv4_hdr_t hdr;
     memset(&hdr, 0, sizeof(hdr));
 
-    /* Version (4) + IHL (5) */
-    hdr.ver_ihl = (4 << 4) | 5;
-    
-    /* DSCP + ECN (0) */
-    hdr.dscp_ecn = 0;
+    hdr.ver_ihl       = (4 << 4) | 5;
+    hdr.dscp_ecn      = 0;
+    hdr.total_len     = bswap16(total_len);
+    hdr.identification= bswap16(0x1234);   /* TODO: increment per packet */
+    hdr.flags_frag    = bswap16(0x4000);   /* DF bit set, no fragmentation */
+    hdr.ttl           = IPV4_TTL_DEFAULT;
+    hdr.protocol      = protocol;
+    hdr.hdr_checksum  = 0;
+    hdr.src_ip        = s_my_ip;
+    hdr.dst_ip        = dst_ip;
 
-    /* Total length (header + data) */
-    uint16_t total_len = sizeof(ipv4_hdr_t) + len;
-    hdr.total_len = ((total_len & 0xFF) << 8) | ((total_len >> 8) & 0xFF);
+    hdr.hdr_checksum  = ipv4_checksum(&hdr);
 
-    /* Identification (random) */
-    hdr.identification = 0x1234;  /* TODO: Use random value */
-
-    /* Flags + Fragment offset (no fragmentation) */
-    hdr.flags_frag = 0;
-
-    /* TTL */
-    hdr.ttl = IPV4_TTL_DEFAULT;
-
-    /* Protocol */
-    hdr.protocol = protocol;
-
-    /* Source IP */
-    extern uint32_t s_my_ip;  /* From ARP module */
-    hdr.src_ip = ((s_my_ip & 0xFF) << 24) | 
-                 (((s_my_ip >> 8) & 0xFF) << 16) | 
-                 (((s_my_ip >> 16) & 0xFF) << 8) | 
-                 (s_my_ip >> 24);
-
-    /* Destination IP */
-    hdr.dst_ip = ((dst_ip & 0xFF) << 24) | 
-                 (((dst_ip >> 8) & 0xFF) << 16) | 
-                 (((dst_ip >> 16) & 0xFF) << 8) | 
-                 (dst_ip >> 24);
-
-    /* Calculate checksum */
-    hdr.hdr_checksum = ipv4_checksum(&hdr);
-
-    /* Build complete packet */
-    uint8_t packet[IPV4_MAX_PACKET];
-    memcpy(packet, &hdr, sizeof(hdr));
+    /* Assemble into stack buffer — safe: total_len ≤ ETH_MAX_PAYLOAD (1010) */
+    uint8_t packet[ETH_MAX_PAYLOAD];
+    memcpy(packet,               &hdr, sizeof(hdr));
     memcpy(packet + sizeof(hdr), data, len);
 
-    /* Send via Ethernet */
-    ret = ether_tx(dst_mac, ETHERTYPE_IPV4, packet, total_len);
+    int ret = ether_tx(dst_mac, ETHERTYPE_IPV4, packet, total_len);
     if (ret != 0) {
-        uart_printf("[IPV4] TX: ether_tx failed: %d\n", ret);
-        s_ipv4_stats.tx_dropped++;
-        return -1;
+        uart_printf("[IP] TX: ether_tx failed %d\n", ret);
+        atomic_inc(&s_ipv4_stats.tx_dropped);
+        return -EIO;
     }
 
-    s_ipv4_stats.tx_total++;
-    uart_printf("[IPV4] TX: dst=");
-    ipv4_print_ip(dst_ip);
-    uart_printf(" proto=%u len=%u\n", protocol, total_len);
-
+    atomic_inc(&s_ipv4_stats.tx_total);
+    uart_printf("[IP] TX: proto=%u len=%u\n", protocol, total_len);
     return 0;
 }
 
 uint16_t ipv4_checksum(const ipv4_hdr_t *hdr)
 {
-    /* Calculate IPv4 header checksum */
-    uint32_t sum = 0;
+    uint32_t        sum = 0;
     const uint16_t *ptr = (const uint16_t *)hdr;
-    uint16_t hdr_len = ipv4_get_ihl(hdr) * 4;
+    uint16_t        hdr_len = (uint16_t)(ipv4_get_ihl(hdr) * 4);
 
-    /* Sum all 16-bit words in header */
-    for (uint16_t i = 0; i < hdr_len / 2; i++) {
+    for (uint16_t i = 0; i < hdr_len / 2; i++)
         sum += ptr[i];
-    }
 
-    /* Handle odd byte if present */
-    if (hdr_len % 2 == 1) {
-        sum += ((const uint8_t *)ptr)[hdr_len - 1] << 8;
-    }
+    if (hdr_len & 1)
+        sum += (uint16_t)(((const uint8_t *)ptr)[hdr_len - 1] << 8);
 
-    /* Add carry bits */
-    while (sum >> 16) {
+    while (sum >> 16)
         sum = (sum & 0xFFFF) + (sum >> 16);
-    }
 
-    /* One's complement */
-    return ~sum;
+    return (uint16_t)(~sum);
 }
 
 const ipv4_stats_t *ipv4_get_stats(void)
@@ -275,8 +237,6 @@ const ipv4_stats_t *ipv4_get_stats(void)
 void ipv4_print_ip(uint32_t ip)
 {
     uart_printf("%u.%u.%u.%u",
-                (ip >> 24) & 0xFF,
-                (ip >> 16) & 0xFF,
-                (ip >> 8) & 0xFF,
-                ip & 0xFF);
+                (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
+                (ip >>  8) & 0xFF,  ip         & 0xFF);
 }
