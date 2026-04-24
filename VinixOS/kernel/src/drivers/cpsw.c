@@ -12,6 +12,7 @@
 #include "uart.h"
 #include "irq.h"
 #include "intc.h"
+#include "string.h"
 
 /* ============================================================
  * PRCM — Clock Verify
@@ -310,25 +311,26 @@ static void cpsw_bd_init(void)
 static void cpsw_rx_isr(void *data)
 {
     (void)data;
-    static volatile uint32_t rx_isr_count = 0;
-    rx_isr_count++;
 
     /* Write EOI first — unblocks CPDMA for next frame */
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
 
     uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
-    uart_printf("[CPSW] ISR #%lu flags=0x%08lx\n",
-                (unsigned long)rx_isr_count, (unsigned long)flags);
 
-    /* Process frame inline — scheduler may not be running yet, so we
-     * cannot defer to cpsw_rx_poll()/idle task. Call the callback here
-     * so arp_rx/ipv4_rx runs and wait_event condition becomes true. */
     if (!(flags & BD_OWNER)) {
         uint16_t len = (uint16_t)(flags & 0xFFFFu);
-        if (s_rx_cb && len > 0)
-            s_rx_cb((const uint8_t *)RX_BUF_PA, len);
 
-        /* Acknowledge BD to CPDMA, then re-arm for next frame */
+        /* Copy frame to static buffer BEFORE re-arming BD.
+         * CPDMA will overwrite RX_BUF_PA as soon as BD_OWNER=1 is written.
+         * Static buffer: no stack alloc, safe in ISR context. */
+        static uint8_t rx_frame_copy[CPSW_FRAME_MAXLEN];
+        if (len > 0 && len <= CPSW_FRAME_MAXLEN)
+            memcpy(rx_frame_copy, (const void *)RX_BUF_PA, len);
+
+        /* Re-arm BD IMMEDIATELY — CPDMA can now accept the next frame
+         * while we process the current one in the callback below.
+         * Without this, any frame arriving during callback (~50ms at 115200
+         * baud) is silently dropped — root cause of ping 75% loss. */
         mmio_write32(STATERAM_RX0_CP, RX_BD_PA);
         mmio_write32(RX_BD_PA + BD_OFF_NEXT,   0);
         mmio_write32(RX_BD_PA + BD_OFF_BUFPTR, RX_BUF_PA);
@@ -336,9 +338,13 @@ static void cpsw_rx_isr(void *data)
         mmio_write32(RX_BD_PA + BD_OFF_FLAGS,
                      BD_OWNER | BD_SOP | BD_EOP | (uint32_t)CPSW_FRAME_MAXLEN);
         mmio_write32(STATERAM_RX0_HDP, RX_BD_PA);
+
+        /* Callback runs after BD is re-armed — next frame can DMA in parallel */
+        if (s_rx_cb && len > 0)
+            s_rx_cb(rx_frame_copy, len);
     }
 
-    s_rx_pending = 1;   /* keep for cpsw_rx_poll() fallback path */
+    s_rx_pending = 1;
 }
 
 static void cpsw_rx_irq_init(void)

@@ -241,7 +241,7 @@ void kernel_main(void)
         uart_printf("[BOOT] Failed to add User App Task\n");
 
     uart_printf("[BOOT] UART init complete. Starting HDMI boot screen...\n");
-uart_printf("[BOOT] *** WR_RX_EN FIX VERSION v2 ***\n");
+uart_printf("[BOOT] *** ISR REARM FIX VERSION v4 ***\n");
 
     /* 3. Boot screen on HDMI — uses timer_early_init() for accurate delay.
      *    MUST run BEFORE timer_init() which reconfigures timer to 10ms auto-reload.

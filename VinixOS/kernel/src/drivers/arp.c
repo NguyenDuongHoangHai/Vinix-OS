@@ -112,6 +112,10 @@ int arp_cache_lookup(uint32_t ip, uint8_t mac[6])
 
 void arp_cache_update(uint32_t ip, const uint8_t mac[6])
 {
+    /* Ignore invalid IPs (DHCP probe uses 0.0.0.0, never cache broadcast) */
+    if (ip == 0x00000000u || ip == 0xFFFFFFFFu)
+        return;
+
     uint32_t flags = spin_lock_irqsave(&s_cache_lock);
 
     int idx = cache_find_entry(ip);
@@ -263,6 +267,10 @@ void arp_rx(const uint8_t *payload, uint16_t len)
 
 int arp_resolve(uint32_t ip, uint8_t mac[6])
 {
+    /* Reject unresolvable IPs immediately */
+    if (ip == 0x00000000u || ip == 0xFFFFFFFFu)
+        return -EINVAL;
+
     /* Fast path — already cached */
     if (arp_cache_lookup(ip, mac) == 0)
         return 0;
