@@ -45,6 +45,9 @@ extern void sync_selftest(void);
 #include "ether.h"
 #include "netcore.h"
 #include "arp.h"
+#ifdef ENABLE_LAYER1_TEST
+#include "mdio_test.h"
+#endif
 /* end Hai Nguyen                                      */
 /* ================================================== */
 

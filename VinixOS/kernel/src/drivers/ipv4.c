@@ -120,11 +120,10 @@ void ipv4_rx(const uint8_t *payload, uint16_t len)
         return;
     }
 
-    /* Destination filter — accept our IP or broadcast */
-    uint32_t dst_ip = bswap16((uint16_t)(hdr->dst_ip)) |
-                      ((uint32_t)bswap16((uint16_t)(hdr->dst_ip >> 16)) << 16);
-    /* Simpler: read dst_ip as raw 32-bit in host order for comparison with s_my_ip */
-    uint32_t dst_raw = hdr->dst_ip;   /* host-order read of network-order field */
+    /* Destination filter — accept our IP or broadcast.
+     * Both dst_ip and s_my_ip are stored as raw uint32_t in host-order
+     * memory reads of network-order fields, so direct compare is valid. */
+    uint32_t dst_raw = hdr->dst_ip;
     if (dst_raw != s_my_ip && dst_raw != 0xFFFFFFFFu) {
         uart_printf("[IP] RX: not for us, drop\n");
         atomic_inc(&s_ipv4_stats.rx_dropped);
@@ -213,15 +212,15 @@ int ipv4_tx(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len)
 
 uint16_t ipv4_checksum(const ipv4_hdr_t *hdr)
 {
-    uint32_t        sum = 0;
-    const uint16_t *ptr = (const uint16_t *)hdr;
-    uint16_t        hdr_len = (uint16_t)(ipv4_get_ihl(hdr) * 4);
+    uint32_t       sum     = 0;
+    const uint8_t *ptr     = (const uint8_t *)hdr;
+    uint16_t       hdr_len = (uint16_t)(ipv4_get_ihl(hdr) * 4);
 
-    for (uint16_t i = 0; i < hdr_len / 2; i++)
-        sum += ptr[i];
+    for (uint16_t i = 0; i + 1 < hdr_len; i += 2)
+        sum += (uint16_t)((uint16_t)ptr[i] | ((uint16_t)ptr[i + 1] << 8));
 
     if (hdr_len & 1)
-        sum += (uint16_t)(((const uint8_t *)ptr)[hdr_len - 1] << 8);
+        sum += ptr[hdr_len - 1];
 
     while (sum >> 16)
         sum = (sum & 0xFFFF) + (sum >> 16);

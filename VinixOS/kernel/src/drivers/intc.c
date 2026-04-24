@@ -7,6 +7,7 @@
 #include "intc.h"
 #include "mmio.h"
 #include "cpu.h"
+#include "uart.h"
 
 void intc_init(void)
 {
@@ -83,7 +84,6 @@ void intc_set_priority(uint32_t irq_num, uint32_t priority)
 
 #include "platform_device.h"
 #include "platform_drivers.h"
-#include "uart.h"
 
 static int omap_intc_probe(struct platform_device *pdev)
 {

@@ -5,6 +5,7 @@
 
 #include "icmp.h"
 #include "ipv4.h"
+#include "ether.h"
 #include "uart.h"
 #include "string.h"
 #include "atomic.h"
@@ -192,14 +193,14 @@ int icmp_pong(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
 
 uint16_t icmp_checksum(const void *data, size_t len)
 {
-    uint32_t        sum = 0;
-    const uint16_t *ptr = (const uint16_t *)data;
+    uint32_t       sum = 0;
+    const uint8_t *ptr = (const uint8_t *)data;
 
-    for (size_t i = 0; i < len / 2; i++)
-        sum += ptr[i];
+    for (size_t i = 0; i + 1 < len; i += 2)
+        sum += (uint16_t)((uint16_t)ptr[i] | ((uint16_t)ptr[i + 1] << 8));
 
     if (len & 1)
-        sum += (uint16_t)(((const uint8_t *)ptr)[len - 1] << 8);
+        sum += ptr[len - 1];
 
     while (sum >> 16)
         sum = (sum & 0xFFFF) + (sum >> 16);
