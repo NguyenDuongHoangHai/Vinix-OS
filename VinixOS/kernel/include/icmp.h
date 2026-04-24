@@ -81,6 +81,9 @@ int      icmp_ping(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
                    const void *data, size_t data_len);
 int      icmp_pong(uint32_t dst_ip, uint16_t identifier, uint16_t sequence,
                    const void *data, size_t data_len);
+/* RFC 792: Destination Unreachable — original_hdr should be IP hdr + 8 bytes */
+int      icmp_dest_unreachable(uint32_t dst_ip, uint8_t code,
+                               const void *original_hdr, size_t hdr_len);
 uint16_t icmp_checksum(const void *data, size_t len);
 const icmp_stats_t *icmp_get_stats(void);
 const char         *icmp_type_to_string(uint8_t type);

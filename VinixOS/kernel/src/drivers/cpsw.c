@@ -73,12 +73,15 @@
 #define CPDMA_RX_EN                (1u << 0)
 
 /* ============================================================
- * CPSW_WR — Wrapper / Interrupt Pacing
- * TRM §14.3.4
+ * CPSW_WR — Wrapper Interrupt Enable
+ * TRM §14.3.4, struct cpsw_wr_regs (Linux davinci/cpsw.h):
+ *   +0x014 = C0_RX_EN  (Core 0 RX interrupt enable — must be set)
+ *   +0x018 = C0_TX_EN  (Core 0 TX interrupt enable)
+ *   +0x02C = C1_MISC_EN / +0x030 = C2_RX_THRESH_EN — NOT C0 enable
  * ============================================================ */
 #define CPSW_WR_BASE                0x4A101200u
-#define CPSW_WR_C0_TX_EN           (CPSW_WR_BASE + 0x02Cu)
-#define CPSW_WR_C0_RX_EN           (CPSW_WR_BASE + 0x030u)
+#define CPSW_WR_C0_TX_EN           (CPSW_WR_BASE + 0x018u)
+#define CPSW_WR_C0_RX_EN           (CPSW_WR_BASE + 0x014u)
 
 /* ============================================================
  * STATERAM
@@ -313,10 +316,13 @@ static void cpsw_rx_isr(void *data)
     /* Write EOI first — unblocks CPDMA for next frame */
     mmio_write32(CPDMA_EOI_VECTOR, CPDMA_EOI_RX);
 
+    uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
+    uart_printf("[CPSW] ISR #%lu flags=0x%08lx\n",
+                (unsigned long)rx_isr_count, (unsigned long)flags);
+
     /* Process frame inline — scheduler may not be running yet, so we
      * cannot defer to cpsw_rx_poll()/idle task. Call the callback here
      * so arp_rx/ipv4_rx runs and wait_event condition becomes true. */
-    uint32_t flags = mmio_read32(RX_BD_PA + BD_OFF_FLAGS);
     if (!(flags & BD_OWNER)) {
         uint16_t len = (uint16_t)(flags & 0xFFFFu);
         if (s_rx_cb && len > 0)
