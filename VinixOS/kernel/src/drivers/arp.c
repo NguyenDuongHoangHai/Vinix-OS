@@ -177,9 +177,9 @@ static void arp_send_request(uint32_t target_ip)
     pkt.opcode     = bswap16(ARP_OPCODE_REQUEST);
 
     memcpy(pkt.sender_mac, s_my_mac, 6);
-    pkt.sender_ip  = s_my_ip;
+    pkt.sender_ip  = bswap32(s_my_ip);
     memset(pkt.target_mac, 0, 6);
-    pkt.target_ip  = target_ip;
+    pkt.target_ip  = bswap32(target_ip);
 
     uart_printf("[ARP] who-has ");
     arp_print_ip(target_ip);
@@ -204,9 +204,9 @@ static void arp_send_reply(uint32_t target_ip, const uint8_t target_mac[6])
     pkt.opcode     = bswap16(ARP_OPCODE_REPLY);
 
     memcpy(pkt.sender_mac, s_my_mac, 6);
-    pkt.sender_ip  = s_my_ip;
+    pkt.sender_ip  = bswap32(s_my_ip);
     memcpy(pkt.target_mac, target_mac, 6);
-    pkt.target_ip  = target_ip;
+    pkt.target_ip  = bswap32(target_ip);
 
     uart_printf("[ARP] is-at reply -> ");
     arp_print_ip(target_ip);

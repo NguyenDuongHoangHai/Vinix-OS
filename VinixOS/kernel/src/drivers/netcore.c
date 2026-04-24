@@ -68,9 +68,15 @@ int netcore_build_arp_request(uint8_t *buf, size_t len, uint32_t target_ip)
     arp->proto_len  = 4;
     arp->opcode     = 0x0100;   /* Request — big-endian */
     memcpy(arp->sender_mac, my_mac, ETH_ADDR_LEN);
-    arp->sender_ip  = s_my_ip;
+    arp->sender_ip  = ((s_my_ip & 0x000000FFu) << 24) |
+                      ((s_my_ip & 0x0000FF00u) <<  8) |
+                      ((s_my_ip & 0x00FF0000u) >>  8) |
+                      ((s_my_ip & 0xFF000000u) >> 24);
     memset(arp->target_mac, 0, ETH_ADDR_LEN);
-    arp->target_ip  = target_ip;
+    arp->target_ip  = ((target_ip & 0x000000FFu) << 24) |
+                      ((target_ip & 0x0000FF00u) <<  8) |
+                      ((target_ip & 0x00FF0000u) >>  8) |
+                      ((target_ip & 0xFF000000u) >> 24);
 
     return (int)(ETH_HEADER_LEN + ARP_PKT_LEN);
 }
