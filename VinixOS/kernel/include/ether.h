@@ -15,6 +15,7 @@
 #define ETHER_H
 
 #include "types.h"
+#include "net_driver_ops.h"
 
 /* ============================================================
  * Constants
@@ -51,9 +52,10 @@ void ether_set_arp_handler(ether_rx_handler_t handler);
 
 /* ============================================================
  * Init — gọi sau cpsw_init()
+ * ops->get_mac() cung cấp MAC; không cần truyền mac vào ngoài.
  * ============================================================ */
 
-void ether_init(const uint8_t my_mac[ETH_ADDR_LEN]);
+void ether_init(const net_driver_ops_t *ops);
 
 /* ============================================================
  * TX — gọi từ tầng trên (ARP, IP)

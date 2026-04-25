@@ -8,6 +8,7 @@
 #define CPSW_H
 
 #include "types.h"
+#include "net_driver_ops.h"
 
 #define CPSW_MAC_LEN       6
 #define CPSW_FRAME_MAXLEN  1024
@@ -29,5 +30,8 @@ void cpsw_rx_poll(void);
 
 /* Call after irq_init() to enable interrupt-driven RX. */
 void cpsw_rx_irq_enable(void);
+
+/* Ops instance — pass to ether_init() to wire CPSW as the network driver. */
+extern const net_driver_ops_t cpsw_net_ops;
 
 #endif /* CPSW_H */

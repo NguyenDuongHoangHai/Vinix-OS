@@ -610,3 +610,14 @@ process_frame:
         uart_printf("[CPSW] RX: Frame processed successfully\n");
     }
 }
+
+/* ============================================================
+ * Driver ops — wires CPSW functions into net_driver_ops_t.
+ * Pass &cpsw_net_ops to ether_init() in main.c.
+ * ============================================================ */
+
+const net_driver_ops_t cpsw_net_ops = {
+    .tx              = cpsw_tx,
+    .get_mac         = cpsw_get_mac,
+    .set_rx_callback = cpsw_set_rx_callback,
+};

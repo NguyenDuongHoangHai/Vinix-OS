@@ -107,13 +107,7 @@ void kernel_main(void)
 #endif
     cpsw_init();
 
-    /* Layer 3: Ethernet frame driver
-     * ARP, IP, ICMP sẽ được thêm sau khi Ethernet layer hoạt động */
-    {
-        uint8_t mac[6];
-        cpsw_get_mac(mac);
-        ether_init(mac);
-    }
+    ether_init(&cpsw_net_ops);
 
     /* ------------------------------------------------
      * Layer 3 Smoke Test: verify ether_tx() hoạt động
@@ -128,7 +122,7 @@ void kernel_main(void)
         uint8_t msg[12];
         msg[0]='E'; msg[1]='T'; msg[2]='H';
         msg[3]='O'; msg[4]='K'; msg[5]=0;
-        cpsw_get_mac(msg + 6);  /* append BBB MAC for identification */
+        ether_get_mac(msg + 6);
         int r = ether_tx(bcast, 0x9000, msg, 12);
         uart_printf("[ETH] smoke test tx: %s\n", (r == 0) ? "OK" : "FAIL");
         uart_printf("[ETH] Wireshark filter: eth.type == 0x9000\n");
@@ -139,10 +133,9 @@ void kernel_main(void)
      * ------------------------------------------------
      * Initialize ARP and register real handlers
      * ------------------------------------------------ */
-    /* Set my IP and MAC for ARP FIRST */
     {
         uint8_t mac[6];
-        cpsw_get_mac(mac);
+        ether_get_mac(mac);
         arp_set_my_mac(mac);
         arp_set_my_ip(0xc0a80a64);  /* 192.168.10.100 */
     }

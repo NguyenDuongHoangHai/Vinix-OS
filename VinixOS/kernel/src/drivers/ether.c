@@ -4,20 +4,15 @@
  * Ethernet Frame Layer — Layer 3
  *
  * Trách nhiệm DUY NHẤT:
- *   TX: build Ethernet header + gửi qua cpsw_tx()
+ *   TX: build Ethernet header + gửi qua net_driver_ops_t.tx()
  *   RX: strip Ethernet header + dispatch lên tầng trên
  *
  * KHÔNG biết gì về ARP, IP, ICMP, UDP.
  * Chỉ biết: MAC address, EtherType, frame boundary.
- *
- * Dependency:
- *   - cpsw.h: cpsw_tx(), cpsw_get_mac(), cpsw_set_rx_callback()
- *   - uart.h: uart_printf()
- *   - string.h: memcpy(), memset()
  * ============================================================ */
 
 #include "ether.h"
-#include "cpsw.h"
+#include "net_utils.h"
 #include "uart.h"
 #include "string.h"
 
@@ -25,29 +20,22 @@
  * Static State
  * ============================================================ */
 
-static uint8_t s_mac[ETH_ADDR_LEN];
-static uint8_t s_tx_buf[1024];  /* CPSW_FRAME_MAXLEN */
+static const net_driver_ops_t *s_ops          = 0;
+static uint8_t                 s_mac[ETH_ADDR_LEN];
+static uint8_t                 s_tx_buf[1024];
 
 static ether_rx_handler_t s_ipv4_handler = 0;
 static ether_rx_handler_t s_arp_handler  = 0;
 
 /* ============================================================
- * Byte Order Helper
- * ============================================================ */
-
-static inline uint16_t bswap16(uint16_t v)
-{
-    return (uint16_t)((v >> 8) | (v << 8));
-}
-
-/* ============================================================
  * Init
  * ============================================================ */
 
-void ether_init(const uint8_t my_mac[ETH_ADDR_LEN])
+void ether_init(const net_driver_ops_t *ops)
 {
-    memcpy(s_mac, my_mac, ETH_ADDR_LEN);
-    cpsw_set_rx_callback(ether_rx);
+    s_ops = ops;
+    ops->get_mac(s_mac);
+    ops->set_rx_callback(ether_rx);
 
     uart_printf("[ETH] init MAC=%02x:%02x:%02x:%02x:%02x:%02x\n",
                 s_mac[0], s_mac[1], s_mac[2],
@@ -86,7 +74,7 @@ int ether_tx(const uint8_t dst_mac[ETH_ADDR_LEN],
     eth_hdr_t *hdr = (eth_hdr_t *)s_tx_buf;
     memcpy(hdr->dst, dst_mac, ETH_ADDR_LEN);
     memcpy(hdr->src, s_mac,   ETH_ADDR_LEN);
-    hdr->ethertype = bswap16(ethertype);
+    hdr->ethertype = htons(ethertype);
 
     memcpy(s_tx_buf + ETH_HEADER_LEN, payload, len);
 
@@ -96,11 +84,11 @@ int ether_tx(const uint8_t dst_mac[ETH_ADDR_LEN],
         flen = ETH_MIN_FRAME;
     }
 
-    return cpsw_tx(s_tx_buf, flen);
+    return s_ops->tx(s_tx_buf, flen);
 }
 
 /* ============================================================
- * RX — called by CPDMA via cpsw_set_rx_callback()
+ * RX — registered as callback via ops->set_rx_callback()
  * ============================================================ */
 
 void ether_rx(const uint8_t *frame, uint16_t len)
@@ -118,7 +106,7 @@ void ether_rx(const uint8_t *frame, uint16_t len)
     ether_mac_print(hdr->dst);
     uart_printf(" src=");
     ether_mac_print(hdr->src);
-    uart_printf(" type=0x%04x\n", bswap16(hdr->ethertype));
+    uart_printf(" type=0x%04x\n", ntohs(hdr->ethertype));
 
     /* Accept only frames for us or broadcast */
     if (!ether_mac_eq(hdr->dst, s_mac) && !ether_mac_is_bcast(hdr->dst)) {
@@ -126,7 +114,7 @@ void ether_rx(const uint8_t *frame, uint16_t len)
         return;
     }
 
-    uint16_t ethertype     = bswap16(hdr->ethertype);
+    uint16_t ethertype     = ntohs(hdr->ethertype);
     const uint8_t *payload = frame + ETH_HEADER_LEN;
     uint16_t plen          = (uint16_t)(len - ETH_HEADER_LEN);
 
