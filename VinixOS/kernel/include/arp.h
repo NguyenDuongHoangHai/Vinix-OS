@@ -29,6 +29,9 @@
 /* arp_resolve retries before giving up */
 #define ARP_RESOLVE_RETRIES  3
 
+/* Ticks to wait per retry (10 ms/tick → 300 ticks = 3 s) */
+#define ARP_RETRY_TICKS  300u
+
 /* ============================================================
  * ARP Packet — RFC 826
  * ============================================================ */

@@ -34,4 +34,7 @@ void cpsw_rx_irq_enable(void);
 /* Ops instance — pass to ether_init() to wire CPSW as the network driver. */
 extern const net_driver_ops_t cpsw_net_ops;
 
+/* Print CPDMA/BD/WR register state — call when RX appears broken. */
+void cpsw_diag_dump(void);
+
 #endif /* CPSW_H */

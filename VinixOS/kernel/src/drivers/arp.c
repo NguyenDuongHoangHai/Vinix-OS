@@ -10,6 +10,7 @@
 #include "wait_queue.h"
 #include "timer.h"
 #include "errno.h"
+#include "cpsw.h"
 
 /* ============================================================
  * Static State
@@ -275,18 +276,24 @@ int arp_resolve(uint32_t ip, uint8_t mac[6])
     if (arp_cache_lookup(ip, mac) == 0)
         return 0;
 
-    /* Send request and block until arp_rx() updates the cache.
-     * wake_up(&s_arp_wq) is called from arp_cache_update().
-     * Retry ARP_RESOLVE_RETRIES times; a timer watchdog (M5) will
-     * be needed to guarantee bounded timeout when host is unreachable. */
+    /* Send ARP request and poll for reply within ARP_RETRY_TICKS per retry.
+     * cpsw_rx_poll() is called each iteration as a fallback: it processes
+     * any frame the CPDMA has DMA'd even if the RX ISR has not fired.
+     * wake_up(&s_arp_wq) in arp_cache_update() handles the scheduler path
+     * once the scheduler is running. */
     for (int retry = 0; retry < ARP_RESOLVE_RETRIES; retry++) {
         uart_printf("[ARP] resolve: sending request (retry %d)\n", retry);
         arp_send_request(ip);
 
-        wait_event(s_arp_wq, arp_cache_lookup(ip, mac) == 0);
+        uint32_t start = timer_get_ticks();
+        while ((timer_get_ticks() - start) < ARP_RETRY_TICKS) {
+            if (arp_cache_lookup(ip, mac) == 0)
+                return 0;
+            cpsw_rx_poll();
+        }
 
-        if (arp_cache_lookup(ip, mac) == 0)
-            return 0;
+        uart_printf("[ARP] resolve: retry %d timed out — CPDMA state:\n", retry);
+        cpsw_diag_dump();
     }
 
     uart_printf("[ARP] resolve: timeout for ");
