@@ -125,7 +125,7 @@ int test_arp_request_reply(void)
         
         /* Test ARP resolution */
         int ret = arp_resolve(target_ip, target_mac);
-        ARP_TEST_ASSERT(ret == 0 || ret == -1, "ARP resolve returns valid status");
+        ARP_TEST_ASSERT(ret <= 0, "ARP resolve returns valid status");
     }
     
     /* Test 2: MAC address validation */

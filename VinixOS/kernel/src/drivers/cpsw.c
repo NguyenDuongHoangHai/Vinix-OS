@@ -629,18 +629,26 @@ void cpsw_diag_dump(void)
     uint32_t rx_raw     = mmio_read32(CPSW_CPDMA_BASE + 0x0A0u); /* RXINTSTATRAW */
     uint32_t rx_masked  = mmio_read32(CPSW_CPDMA_BASE + 0x0A4u); /* RXINTSTATMASKED */
     uint32_t macvector  = mmio_read32(CPSW_CPDMA_BASE + 0x090u); /* MACINVECTOR */
+    uint32_t ale_ctrl   = mmio_read32(ALE_CONTROL);
+    uint32_t ale_pctl0  = mmio_read32(ALE_PORTCTL0);
+    uint32_t ale_pctl1  = mmio_read32(ALE_PORTCTL1);
+    uint32_t mac_ctrl   = mmio_read32(SL1_MACCONTROL);
 
     uart_printf("[CPSW_DIAG] RX_CONTROL  =0x%08x  expect 0x1\n", rx_ctrl);
     uart_printf("[CPSW_DIAG] RX_INTMASK  =0x%08x  expect 0x1 (ch0 enabled)\n", rx_mask);
     uart_printf("[CPSW_DIAG] DMASTATUS   =0x%08x  bit31=IDLE bits[16:13]=RX_ERR\n", dmastat);
     uart_printf("[CPSW_DIAG] RX0_HDP     =0x%08x  expect 0x4a102010\n", hdp);
     uart_printf("[CPSW_DIAG] RX0_CP      =0x%08x  0=no frame yet\n", cp);
-    uart_printf("[CPSW_DIAG] BD_FLAGS    =0x%08x  bit29=0 means frame ready\n", bd_flags);
+    uart_printf("[CPSW_DIAG] BD_FLAGS    =0x%08x  bit29=1=CPDMA owns (waiting), 0=frame ready\n", bd_flags);
     uart_printf("[CPSW_DIAG] BD_BUFPTR   =0x%08x  expect 0x4a102420\n", bd_bufptr);
     uart_printf("[CPSW_DIAG] WR_C0_RX_EN=0x%08x  expect 0x1\n", wr_rxen);
     uart_printf("[CPSW_DIAG] RXINTSTATRAW=0x%08x  raw pending (unmasked)\n", rx_raw);
     uart_printf("[CPSW_DIAG] RXINTMASKED =0x%08x  masked pending (should match raw&mask)\n", rx_masked);
     uart_printf("[CPSW_DIAG] MACINVECTOR =0x%08x  bits[7:0]=RX_PEND channels\n", macvector);
+    uart_printf("[CPSW_DIAG] ALE_CTRL    =0x%08x  expect 0x80000010 (EN|BYPASS)\n", ale_ctrl);
+    uart_printf("[CPSW_DIAG] ALE_PCTL0   =0x%08x  expect 0x3 (CPU port FORWARD)\n", ale_pctl0);
+    uart_printf("[CPSW_DIAG] ALE_PCTL1   =0x%08x  expect 0x3 (MII1 port FORWARD)\n", ale_pctl1);
+    uart_printf("[CPSW_DIAG] SL1_MACCTRL =0x%08x  expect 0x21 (GMII_EN|FULLDUPLEX)\n", mac_ctrl);
 }
 
 /* ============================================================

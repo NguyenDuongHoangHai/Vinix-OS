@@ -124,6 +124,15 @@ int mdio_init(void)
 
     mmio_write32(MDIO_CONTROL, MDIO_CTRL_ENABLE | MDIO_CTRL_CLKDIV);
 
+    /* Wait for MDIO to complete first scan (~410µs at 1.25MHz MDC = CLKDIV=49).
+     * ALIVE is a hardware-maintained bitmap — bit0=1 when PHY addr 0 responds.
+     * Without this wait, reading ALIVE immediately returns 0 (scan not done yet). */
+    {
+        uint32_t t = 200000;
+        while (!(mmio_read32(MDIO_ALIVE) & 0x1u) && t > 0)
+            t--;
+    }
+
     uart_printf("[MDIO] init OK, ALIVE=0x%08x\n", mmio_read32(MDIO_ALIVE));
     return E_OK;
 }
