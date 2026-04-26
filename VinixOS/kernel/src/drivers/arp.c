@@ -213,6 +213,9 @@ static void arp_send_reply(uint32_t target_ip, const uint8_t target_mac[6])
     memcpy(pkt.target_mac, target_mac, 6);
     pkt.target_ip  = bswap32(target_ip);
 
+    uart_printf("[ARP] reply: my_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+                s_my_mac[0], s_my_mac[1], s_my_mac[2],
+                s_my_mac[3], s_my_mac[4], s_my_mac[5]);
     uart_printf("[ARP] is-at reply -> ");
     arp_print_ip(target_ip);
     uart_printf("\n");

@@ -159,6 +159,10 @@ void ipv4_rx(const uint8_t *payload, uint16_t len)
 
 int ipv4_tx(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len)
 {
+    /* Protocol 0 and 255 are IANA Reserved — never valid to transmit */
+    if (protocol == 0 || protocol == 255)
+        return -EINVAL;
+
     /* ETH_MAX_PAYLOAD = 1010; IPv4 header = 20; max upper payload = 990 */
     uint16_t total_len = (uint16_t)(sizeof(ipv4_hdr_t) + len);
     if (total_len > ETH_MAX_PAYLOAD) {
