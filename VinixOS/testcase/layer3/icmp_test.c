@@ -137,7 +137,7 @@ int test_icmp_echo_request_reply(void)
     
     /* Test 1: Ping request creation */
     {
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint16_t identifier = 0x1234;
         uint16_t sequence = 0x0001;
         const char *data = "Hello";
@@ -150,7 +150,7 @@ int test_icmp_echo_request_reply(void)
     
     /* Test 2: Ping reply creation */
     {
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint16_t identifier = 0x1234;
         uint16_t sequence = 0x0001;
         const char *data = "Hello";
@@ -183,7 +183,7 @@ int test_icmp_error_messages(void)
     
     /* Test 1: Destination Unreachable */
     {
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint8_t code = 1;  /* Host Unreachable */
         uint8_t original_hdr[20] = {0};  /* Dummy IP header */
         
@@ -266,7 +266,7 @@ int test_icmp_ping_functionality(void)
     
     /* Test 1: Ping to valid IP */
     {
-        uint32_t valid_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t valid_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint16_t identifier = 0x1234;
         uint16_t sequence = 0x0001;
         
@@ -286,7 +286,7 @@ int test_icmp_ping_functionality(void)
     
     /* Test 3: Ping with data */
     {
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint16_t identifier = 0x1234;
         uint16_t sequence = 0x0001;
         const char *test_data = "Test ping data";

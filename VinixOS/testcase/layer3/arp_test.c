@@ -82,7 +82,7 @@ int test_arp_packet_parsing(void)
             /* Target MAC */
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             /* Target IP */
-            0xc0, 0xa8, 0x0a, 0x50   /* 192.168.10.80 */
+            0xc0, 0xa8, 0x0a, 0x01   /* 192.168.10.1 */
         };
         
         /* Test packet structure validation */
@@ -120,7 +120,7 @@ int test_arp_request_reply(void)
     
     /* Test 1: ARP request creation */
     {
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint8_t target_mac[6] = {0};
         
         /* Test ARP resolution */
@@ -167,7 +167,7 @@ int test_arp_cache_operations(void)
     
     /* Test 1: Cache entry creation */
     {
-        uint32_t test_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t test_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint8_t test_mac[6] = {0xde, 0xad, 0xbe, 0xef, 0x00, 0x01};
         
         /* This test would require access to internal cache functions */
@@ -227,7 +227,7 @@ int test_arp_byte_order(void)
     
     /* Test 1: Network byte order conversion */
     {
-        uint32_t host_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t host_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint32_t network_ip = ((host_ip & 0xFF) << 24) | 
                              (((host_ip >> 8) & 0xFF) << 16) | 
                              (((host_ip >> 16) & 0xFF) << 8) | 

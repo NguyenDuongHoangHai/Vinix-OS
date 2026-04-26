@@ -159,7 +159,7 @@ int test_protocol_integration(void)
     /* Test 1: ARP-IPv4 integration */
     {
         /* Test that ARP can resolve IP for IPv4 */
-        uint32_t test_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t test_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint8_t test_mac[6];
         
         int ret = arp_resolve(test_ip, test_mac);
@@ -169,7 +169,7 @@ int test_protocol_integration(void)
     /* Test 2: IPv4-ICMP integration */
     {
         /* Test that IPv4 can route ICMP packets */
-        uint32_t test_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t test_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint8_t test_data[] = {0x08, 0x00, 0x00, 0x00, 0x12, 0x34, 0x56, 0x78};
         
         int ret = ipv4_tx(test_ip, 1, test_data, sizeof(test_data));
@@ -179,7 +179,7 @@ int test_protocol_integration(void)
     /* Test 3: Complete stack integration */
     {
         /* Test end-to-end packet flow */
-        uint32_t target_ip = 0xc0a80a50;  /* 192.168.10.80 */
+        uint32_t target_ip = 0xc0a80a01;  /* 192.168.10.1 */
         uint16_t identifier = 0x1234;
         uint16_t sequence = 0x0001;
         
@@ -244,14 +244,14 @@ int test_error_propagation(void)
         /* Test oversized packet — 4KB > CPSW_FRAME_MAXLEN(1024), triggers size check.
          * MUST be static: 70KB on the kernel stack (4KB) overflows into BSS. */
         static uint8_t large_buffer[4096];
-        int ret = ipv4_tx(0xc0a80a50, 1, large_buffer, sizeof(large_buffer));
+        int ret = ipv4_tx(0xc0a80a01, 1, large_buffer, sizeof(large_buffer));
         NETWORK_TEST_ASSERT(ret != 0, "Buffer overflow protection");
     }
     
     /* Test 3: Protocol validation */
     {
         /* Test invalid protocol numbers */
-        int ret = ipv4_tx(0xc0a80a50, 255, NULL, 0);  /* Invalid protocol */
+        int ret = ipv4_tx(0xc0a80a01, 255, NULL, 0);  /* Invalid protocol */
         NETWORK_TEST_ASSERT(ret != 0, "Protocol validation");
     }
     

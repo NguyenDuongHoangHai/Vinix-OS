@@ -81,7 +81,7 @@ int test_ipv4_header_parsing(void)
             /* Source IP */
             0xc0, 0xa8, 0x0a, 0x64,  /* 192.168.10.100 */
             /* Destination IP */
-            0xc0, 0xa8, 0x0a, 0x50   /* 192.168.10.80 */
+            0xc0, 0xa8, 0x0a, 0x50   /* 192.168.10.1 */
         };
         
         /* Test version extraction */
@@ -227,7 +227,7 @@ int test_ipv4_routing(void)
     /* Test 2: Network address routing */
     {
         uint32_t network_ip = 0xc0a80a00;  /* 192.168.10.0 */
-        uint32_t dest_ip = 0xc0a80a50;    /* 192.168.10.80 */
+        uint32_t dest_ip = 0xc0a80a01;    /* 192.168.10.1 */
         
         /* Simple network mask check (255.255.255.0) */
         uint32_t network_part = dest_ip & 0xFFFFFF00;
