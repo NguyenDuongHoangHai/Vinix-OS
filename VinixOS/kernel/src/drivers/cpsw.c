@@ -142,6 +142,7 @@
 #define ALE_ENABLE                 (1u << 31)
 #define ALE_CLEAR_TABLE            (1u << 30)
 #define ALE_BYPASS                 (1u << 4)
+#define ALE_P0_UNI_FLOOD           (1u << 27)
 #define ALE_PORT_FORWARD            0x3u
 
 /* IRQ number — AM335x TRM Table 6-1 */
@@ -259,7 +260,7 @@ static int cpsw_mac_init(void)
 static void cpsw_ale_init(void)
 {
     mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_CLEAR_TABLE);
-    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS);
+    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS | ALE_P0_UNI_FLOOD);
     mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
     mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD);
     uart_printf("[CPSW] ALE bypass enabled\n");
@@ -386,7 +387,7 @@ static void cpsw_rx_irq_init(void)
     /* AM335x TRM §14.3.8: CPDMA_SOFT_RESET resets ALE_CONTROL to 0.
      * cpsw_ale_init() ran during cpsw_init() but the reset above cleared it.
      * Re-apply here so frames are forwarded through ALE to CPDMA. */
-    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS);
+    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS | ALE_P0_UNI_FLOOD);
     mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
     mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD);
 
