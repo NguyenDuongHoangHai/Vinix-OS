@@ -383,6 +383,13 @@ static void cpsw_rx_irq_init(void)
     mmio_write32(CPSW_WR_C0_TX_EN, 0);
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
 
+    /* AM335x TRM §14.3.8: CPDMA_SOFT_RESET resets ALE_CONTROL to 0.
+     * cpsw_ale_init() ran during cpsw_init() but the reset above cleared it.
+     * Re-apply here so frames are forwarded through ALE to CPDMA. */
+    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS);
+    mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
+    mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD);
+
     /* Clear DMASTATUS error bits — these persist across soft reset!
      * TRM §14.3.1.4: write 1 to clear RX_HOST_ERR bits [16:13] */
     mmio_write32(CPDMA_DMASTATUS, 0x0001E000u);
