@@ -136,7 +136,7 @@
  * ALE
  * ============================================================ */
 #define CPSW_ALE_BASE               0x4A100D00u
-#define ALE_CONTROL                (CPSW_ALE_BASE + 0x004u)
+#define ALE_CONTROL                (CPSW_ALE_BASE + 0x008u)
 #define ALE_PORTCTL0               (CPSW_ALE_BASE + 0x040u)
 #define ALE_PORTCTL1               (CPSW_ALE_BASE + 0x044u)
 #define ALE_ENABLE                 (1u << 31)
