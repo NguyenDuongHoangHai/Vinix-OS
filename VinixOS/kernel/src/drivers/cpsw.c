@@ -528,6 +528,21 @@ int cpsw_tx(const uint8_t *buf, uint16_t len)
                  BD_OWNER | BD_SOP | BD_EOP | (uint32_t)len);
 
     mmio_write32(STATERAM_TX0_HDP, TX_BD_PA);
+
+    /* Wait for CPDMA to transmit and clear BD_OWNER.
+     * If timeout → CPDMA TX stuck (misconfigured or no TX clock). */
+    {
+        int t = 200000;
+        while ((mmio_read32(TX_BD_PA + BD_OFF_FLAGS) & BD_OWNER) && t > 0)
+            t--;
+        uart_printf("[CPSW] TX: len=%u %s flags=0x%08x hdp=0x%08x\n",
+                    len,
+                    t ? "done" : "TIMEOUT",
+                    mmio_read32(TX_BD_PA + BD_OFF_FLAGS),
+                    mmio_read32(STATERAM_TX0_HDP));
+        if (t == 0)
+            return -1;
+    }
     return 0;
 }
 
@@ -640,6 +655,10 @@ void cpsw_diag_dump(void)
     uint32_t ale_pctl0  = mmio_read32(ALE_PORTCTL0);
     uint32_t ale_pctl1  = mmio_read32(ALE_PORTCTL1);
     uint32_t mac_ctrl   = mmio_read32(SL1_MACCONTROL);
+    uint32_t tx_ctrl    = mmio_read32(CPDMA_TX_CONTROL);
+    uint32_t tx0_hdp    = mmio_read32(STATERAM_TX0_HDP);
+    uint32_t tx0_cp     = mmio_read32(STATERAM_TX0_CP);
+    uint32_t tx_bd_flags= mmio_read32(TX_BD_PA + BD_OFF_FLAGS);
 
     uart_printf("[CPSW_DIAG] RX_CONTROL  =0x%08x  expect 0x1\n", rx_ctrl);
     uart_printf("[CPSW_DIAG] RX_INTMASK  =0x%08x  expect 0x1 (ch0 enabled)\n", rx_mask);
@@ -656,6 +675,10 @@ void cpsw_diag_dump(void)
     uart_printf("[CPSW_DIAG] ALE_PCTL0   =0x%08x  expect 0x3 (CPU port FORWARD)\n", ale_pctl0);
     uart_printf("[CPSW_DIAG] ALE_PCTL1   =0x%08x  expect 0x3 (MII1 port FORWARD)\n", ale_pctl1);
     uart_printf("[CPSW_DIAG] SL1_MACCTRL =0x%08x  expect 0x21 (GMII_EN|FULLDUPLEX)\n", mac_ctrl);
+    uart_printf("[CPSW_DIAG] TX_CONTROL  =0x%08x  expect 0x1 (TX enabled)\n", tx_ctrl);
+    uart_printf("[CPSW_DIAG] TX0_HDP     =0x%08x  0=idle, nonzero=TX in progress\n", tx0_hdp);
+    uart_printf("[CPSW_DIAG] TX0_CP      =0x%08x  set by CPDMA on TX complete\n", tx0_cp);
+    uart_printf("[CPSW_DIAG] TX_BD_FLAGS =0x%08x  bit29=1=CPDMA owns (TX in progress)\n", tx_bd_flags);
 }
 
 /* ============================================================
