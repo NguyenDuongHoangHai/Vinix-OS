@@ -46,6 +46,14 @@ static inline uint16_t bswap16(uint16_t v)
     return (uint16_t)((v >> 8) | (v << 8));
 }
 
+static inline uint32_t bswap32(uint32_t v)
+{
+    return ((v & 0x000000FFu) << 24) |
+           ((v & 0x0000FF00u) <<  8) |
+           ((v & 0x00FF0000u) >>  8) |
+           ((v & 0xFF000000u) >> 24);
+}
+
 /* ============================================================
  * Public API
  * ============================================================ */
@@ -120,18 +128,17 @@ void ipv4_rx(const uint8_t *payload, uint16_t len)
         return;
     }
 
-    /* Destination filter — accept our IP or broadcast.
-     * Both dst_ip and s_my_ip are stored as raw uint32_t in host-order
-     * memory reads of network-order fields, so direct compare is valid. */
+    /* s_my_ip uses network-byte-order integer notation (MSB = first octet).
+     * hdr->dst_ip is read as LE uint32 from the network packet — need bswap32 to compare. */
     uint32_t dst_raw = hdr->dst_ip;
-    if (dst_raw != s_my_ip && dst_raw != 0xFFFFFFFFu) {
+    if (bswap32(dst_raw) != s_my_ip && dst_raw != 0xFFFFFFFFu) {
         uart_printf("[IP] RX: not for us, drop\n");
         atomic_inc(&s_ipv4_stats.rx_dropped);
         return;
     }
 
-    /* Source IP for upper layers — stored same way as s_my_ip (raw field) */
-    uint32_t src_raw = hdr->src_ip;
+    /* Convert LE-read src_ip back to network-byte-order integer (arp/icmp convention) */
+    uint32_t src_raw = bswap32(hdr->src_ip);
 
     uart_printf("[IP] RX: proto=%u len=%u ttl=%u\n",
                 hdr->protocol, total_len, hdr->ttl);
@@ -192,8 +199,8 @@ int ipv4_tx(uint32_t dst_ip, uint8_t protocol, const void *data, size_t len)
     hdr.ttl           = IPV4_TTL_DEFAULT;
     hdr.protocol      = protocol;
     hdr.hdr_checksum  = 0;
-    hdr.src_ip        = s_my_ip;
-    hdr.dst_ip        = dst_ip;
+    hdr.src_ip        = bswap32(s_my_ip);   /* network-byte-order integer → LE wire bytes */
+    hdr.dst_ip        = bswap32(dst_ip);
 
     hdr.hdr_checksum  = ipv4_checksum(&hdr);
 
