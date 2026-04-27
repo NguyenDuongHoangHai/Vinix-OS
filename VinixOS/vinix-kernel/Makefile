@@ -36,16 +36,16 @@ C_SRC = arch/arm/kernel/exception_handlers.c \
         kernel/locking/wait_queue.c \
         kernel/locking/sleep.c \
         kernel/locking/sync_selftest.c \
-        drivers/uart.c \
-        drivers/watchdog.c \
-        drivers/intc.c \
-        drivers/timer.c \
-        drivers/i2c.c \
-        drivers/lcdc.c \
-        drivers/tda19988.c \
-        drivers/mmc.c \
-        drivers/mbr.c \
-        drivers/fb.c \
+        drivers/tty/serial/omap_serial.c \
+        drivers/watchdog/omap_wdt.c \
+        drivers/irqchip/irq-omap-intc.c \
+        drivers/clocksource/timer-omap-dm.c \
+        drivers/i2c/busses/i2c-omap.c \
+        drivers/gpu/drm/tilcdc/tilcdc_drv.c \
+        drivers/gpu/drm/i2c/tda998x.c \
+        drivers/mmc/host/omap_hsmmc.c \
+        block/partitions/msdos.c \
+        drivers/video/fbdev/fbmem.c \
         drivers/char/char_dev.c \
         drivers/base/device.c \
         drivers/base/platform.c \
@@ -70,7 +70,7 @@ PAYLOAD_OBJ = $(BUILD_DIR)/payload.o
 OBJS        = $(ASM_OBJ) $(C_OBJ) $(PAYLOAD_OBJ)
 
 # VPATH lets Make find sources by basename across directory tree
-VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/sched:kernel/locking:drivers:drivers/char:drivers/base:drivers/video:fs:mm:block:lib:lib/test
+VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/sched:kernel/locking:drivers/char:drivers/base:drivers/video:drivers/video/fbdev:drivers/tty/serial:drivers/irqchip:drivers/clocksource:drivers/i2c/busses:drivers/mmc/host:drivers/watchdog:drivers/gpu/drm/tilcdc:drivers/gpu/drm/i2c:fs:mm:block:block/partitions:lib:lib/test
 
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -march=armv7-a -mtune=cortex-a8 \
