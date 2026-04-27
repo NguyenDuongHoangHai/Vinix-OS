@@ -59,8 +59,12 @@ void uart_rx_clear(void);
 
 uint32_t uart_get_irq_fire_count(void);
 
-/* sys_read waits on this; uart_rx_irq_handler wakes it per byte. */
+/* sys_read waits on this; serial_core's rx_push wakes it per byte. */
 #include "wait_queue.h"
 extern wait_queue_head_t uart_rx_wq;
+
+/* Driver IRQ -> serial_core glue. */
+int  uart_serial_rx_push(uint8_t ch);
+void uart_serial_rx_irq_count(void);
 
 #endif /* UART_H */

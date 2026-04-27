@@ -10,11 +10,6 @@
 #include "cpu.h"
 #include "irq.h"
 #include "intc.h"
-#include "wait_queue.h"
-#include <stdarg.h>
-
-/* Waiters blocked in sys_read waiting for RX data. */
-wait_queue_head_t uart_rx_wq = { .head = 0 };
 
 /* Hardware Definitions */
 #define UART0_BASE      0x44E09000
@@ -55,95 +50,49 @@ wait_queue_head_t uart_rx_wq = { .head = 0 };
 #define FCR_RX_CLR      (1 << 1)
 #define FCR_TX_CLR      (1 << 2)
 
-/* Ring Buffer */
-struct uart_rx_buffer {
-    uint8_t data[UART_RX_BUFFER_SIZE];
-    volatile uint32_t head;
-    volatile uint32_t tail;
-    volatile uint32_t overflow;
-};
-
-static struct uart_rx_buffer rx_buffer;
-static volatile uint32_t uart_irq_fire_count = 0;
-
 /* ============================================================
- * RX Interrupt Handler
- * ============================================================
- */
+ * RX Interrupt Handler — drains FIFO, hands bytes to serial_core
+ * ============================================================ */
 
 static void uart_rx_irq_handler(void *data)
 {
-    uart_irq_fire_count++;
-    
-    uint32_t iir, lsr;
-    uint8_t ch;
-    
+    uart_serial_rx_irq_count();
+
     /* Read IIR to identify interrupt type */
-    iir = mmio_read32(UART0_BASE + UART_IIR);
-    
-    if (iir & IIR_IT_PENDING) {
-        return;  /* No interrupt pending */
-    }
-    
-    /* Extract interrupt type */
+    uint32_t iir = mmio_read32(UART0_BASE + UART_IIR);
+    if (iir & IIR_IT_PENDING) return;
+
     uint32_t it_type = (iir & IIR_IT_TYPE_MASK) >> 1;
-    
-    /* Handle LINE_STS interrupt (IT_TYPE = 0x06) */
-    /* This clears error flags by reading LSR */
+    uint32_t lsr;
+
+    /* LINE_STS (IT_TYPE = 0x06) — read LSR clears error flags. */
     if (it_type == 0x06) {
         lsr = mmio_read32(UART0_BASE + UART_LSR);
-        
-        /* If no data available after reading LSR, we're done */
-        if (!(lsr & LSR_DR)) {
-            return;
-        }
-        /* Fall through to read data */
+        if (!(lsr & LSR_DR)) return;
     }
-    
-    /* Read all available characters from RX FIFO */
+
+    /* Drain RX FIFO, push every byte into the serial_core ring. */
     while (1) {
         lsr = mmio_read32(UART0_BASE + UART_LSR);
-        
-        /* Check for errors - discard character if error */
+
         if (lsr & LSR_ERROR_MASK) {
             (void)mmio_read32(UART0_BASE + UART_RHR);
             continue;
         }
-        
-        /* Check if data ready */
-        if (!(lsr & LSR_DR)) {
-            break;  /* No more data */
-        }
-        
-        /* Read character */
-        ch = mmio_read32(UART0_BASE + UART_RHR) & 0xFF;
-        
-        /* Store in ring buffer */
-        uint32_t next_head = (rx_buffer.head + 1) % UART_RX_BUFFER_SIZE;
-        
-        if (next_head == rx_buffer.tail) {
-            rx_buffer.overflow++;
-            continue;  /* Buffer full, discard */
-        }
-        
-        rx_buffer.data[rx_buffer.head] = ch;
-        rx_buffer.head = next_head;
+        if (!(lsr & LSR_DR)) break;
 
-        /* Wake the first sys_read waiter per byte — lets shell proceed. */
-        wake_up(&uart_rx_wq);
+        uint8_t ch = mmio_read32(UART0_BASE + UART_RHR) & 0xFF;
+        (void)uart_serial_rx_push(ch);
     }
 }
 
 /* ============================================================
- * UART Initialization
- * ============================================================
- */
+ * UART Initialization — ring buffer state owned by serial_core.
+ * ============================================================ */
 
 void uart_init(void)
 {
-    rx_buffer.head = 0;
-    rx_buffer.tail = 0;
-    rx_buffer.overflow = 0;
+    /* Hardware-side init runs in uart_enable_rx_interrupt(). */
 }
 
 void uart_enable_rx_interrupt(void)
@@ -209,54 +158,9 @@ void uart_puts(const char *s)
     }
 }
 
-/* ============================================================
- * RX Functions
- * ============================================================
- */
-
-int uart_getc(void)
-{
-    static uint32_t call_count = 0;
-    call_count++;
-
-    uint32_t flags = irq_save();
-    
-    if (rx_buffer.head == rx_buffer.tail) {
-        irq_restore(flags);
-        return -1;
-    }
-    
-    uint8_t ch = rx_buffer.data[rx_buffer.tail];
-    rx_buffer.tail = (rx_buffer.tail + 1) % UART_RX_BUFFER_SIZE;
-    
-    irq_restore(flags);
-    return (int)ch;
-}
-
-int uart_rx_available(void)
-{
-    uint32_t head = rx_buffer.head;
-    uint32_t tail = rx_buffer.tail;
-    
-    if (head >= tail) {
-        return head - tail;
-    } else {
-        return UART_RX_BUFFER_SIZE - tail + head;
-    }
-}
-
-void uart_rx_clear(void)
-{
-    uint32_t flags = irq_save();
-    rx_buffer.head = 0;
-    rx_buffer.tail = 0;
-    irq_restore(flags);
-}
-
-uint32_t uart_get_irq_fire_count(void)
-{
-    return uart_irq_fire_count;
-}
+/* uart_getc / uart_rx_available / uart_rx_clear / uart_get_irq_fire_count
+ * live in kernel/tty/serial/serial_core.c — they consume the ring
+ * buffer that uart_serial_rx_push fills from this driver's IRQ. */
 
 /* ============================================================
  * Platform driver wiring
