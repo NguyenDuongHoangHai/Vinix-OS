@@ -439,44 +439,13 @@ int mmc_write_sectors(uint32_t lba, uint32_t count, const void *src)
 }
 
 /* ============================================================
- * Block-device registration
- * ============================================================ */
-
-#include "vinix/blkdev.h"
-
-static int mmc_bdev_read(struct gendisk *bdev, uint32_t lba,
-                         uint32_t count, void *buf)
-{
-    (void)bdev;
-    return mmc_read_sectors(lba, count, buf);
-}
-
-static int mmc_bdev_write(struct gendisk *bdev, uint32_t lba,
-                          uint32_t count, const void *buf)
-{
-    (void)bdev;
-    return mmc_write_sectors(lba, count, buf);
-}
-
-static const struct block_device_operations mmc_blk_ops = {
-    .read_sectors  = mmc_bdev_read,
-    .write_sectors = mmc_bdev_write,
-};
-
-static struct gendisk mmc_bdev = {
-    .name          = "mmc0",
-    .sector_size   = 512,
-    .total_sectors = 0,      /* filled in later if an inquiry is added */
-    .fops          = &mmc_blk_ops,
-    .priv          = 0,
-};
-
-/* ============================================================
- * Platform driver wiring
+ * Platform driver wiring — registers as mmc_host, lets
+ * kernel/mmc/block.c create the gendisk.
  * ============================================================ */
 
 #include "platform_device.h"
 #include "platform_drivers.h"
+#include "vinix/mmc/host.h"
 
 static int omap_hsmmc_probe(struct platform_device *pdev)
 {
@@ -484,9 +453,15 @@ static int omap_hsmmc_probe(struct platform_device *pdev)
     int irq = platform_get_irq(pdev, 0);
     uart_printf("[MMC] probing %s @ 0x%08x irq %d\n",
                 pdev->name, mem ? mem->start : 0, irq);
+
     int rc = mmc_init();
-    if (rc == E_OK) add_disk(&mmc_bdev);
-    return rc;
+    if (rc != E_OK) return rc;
+
+    struct mmc_host *host = mmc_alloc_host(0, "mmc0");
+    if (!host) return E_FAIL;
+    mmc_add_host(host);
+    mmc_block_register(host, mmc_read_sectors, mmc_write_sectors, 0);
+    return E_OK;
 }
 
 static struct platform_driver omap_hsmmc_driver = {

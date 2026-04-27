@@ -45,4 +45,12 @@ struct mmc_host *mmc_alloc_host(int extra_priv, const char *name);
 int              mmc_add_host  (struct mmc_host *host);
 void             mmc_remove_host(struct mmc_host *host);
 
+/* mmc -> block bridge. Host driver registers a disk by passing
+ * its sector I/O callbacks; mmc_block builds the gendisk and
+ * calls add_disk. total_sectors=0 means unknown (MVP). */
+int mmc_block_register(struct mmc_host *host,
+                       int (*read_fn) (uint32_t lba, uint32_t count, void *),
+                       int (*write_fn)(uint32_t lba, uint32_t count, const void *),
+                       uint32_t total_sectors);
+
 #endif /* VINIX_MMC_HOST_H */
