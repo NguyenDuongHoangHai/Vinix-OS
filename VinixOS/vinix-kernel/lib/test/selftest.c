@@ -11,7 +11,7 @@
 #include "page_alloc.h"
 #include "slab.h"
 #include "buffer_cache.h"
-#include "block.h"
+#include "vinix/blkdev.h"
 #include "procfs.h"
 #include "vfs.h"
 #include "syscalls.h"
@@ -23,7 +23,7 @@
 
 static int test_bcache_hit(void)
 {
-    struct block_device *bdev = block_find("mmc0");
+    struct gendisk *bdev = get_gendisk("mmc0");
     if (!bdev) return -1;
 
     uint32_t miss0 = bcache_misses();

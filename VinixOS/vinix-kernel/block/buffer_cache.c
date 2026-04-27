@@ -31,7 +31,7 @@ void bcache_init(void)
                 (BCACHE_BUFFERS * BCACHE_BLOCK_SIZE) / 1024);
 }
 
-static struct buffer_head *find_cached(struct block_device *bdev, uint32_t lba)
+static struct buffer_head *find_cached(struct gendisk *bdev, uint32_t lba)
 {
     for (int i = 0; i < BCACHE_BUFFERS; i++) {
         if (buffers[i].valid && buffers[i].bdev == bdev && buffers[i].lba == lba) {
@@ -55,12 +55,12 @@ static struct buffer_head *pick_victim(void)
 static int flush_buffer(struct buffer_head *bh)
 {
     if (!bh->valid || !bh->dirty) return E_OK;
-    int rc = block_write(bh->bdev, bh->lba, 1, bh->data);
+    int rc = blk_write(bh->bdev, bh->lba, 1, bh->data);
     if (rc == E_OK) bh->dirty = false;
     return rc;
 }
 
-struct buffer_head *bread(struct block_device *bdev, uint32_t lba)
+struct buffer_head *bread(struct gendisk *bdev, uint32_t lba)
 {
     struct buffer_head *bh = find_cached(bdev, lba);
     if (bh) {
@@ -78,7 +78,7 @@ struct buffer_head *bread(struct block_device *bdev, uint32_t lba)
         }
     }
 
-    if (block_read(bdev, lba, 1, bh->data) != E_OK) {
+    if (blk_read(bdev, lba, 1, bh->data) != E_OK) {
         bh->valid = false;
         return 0;
     }
@@ -104,7 +104,7 @@ void bmark_dirty(struct buffer_head *bh)
     if (bh && bh->valid) bh->dirty = true;
 }
 
-void binvalidate(struct block_device *bdev, uint32_t lba)
+void binvalidate(struct gendisk *bdev, uint32_t lba)
 {
     struct buffer_head *bh = find_cached(bdev, lba);
     if (bh) {

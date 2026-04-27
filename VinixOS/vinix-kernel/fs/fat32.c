@@ -11,7 +11,7 @@
 #include "types.h"
 #include "fat32.h"
 #include "vfs.h"
-#include "block.h"
+#include "vinix/blkdev.h"
 #include "buffer_cache.h"
 #include "uart.h"
 #include "string.h"
@@ -86,7 +86,7 @@ struct fat32_file {
 static struct fat32_file file_table[FAT32_MAX_FILES];
 static int               file_count;
 
-static struct block_device *fs_bdev = 0;
+static struct gendisk *fs_bdev = 0;
 
 /* Scratch buffer for bootstrap reads (BPB parse + initial scan). */
 static uint8_t sector_buf[FAT32_SECTOR_SZ];
@@ -350,7 +350,7 @@ int fat32_init(uint32_t partition_lba)
 
     uart_printf("[FAT32] Initializing at partition LBA %u...\n", partition_lba);
 
-    fs_bdev = block_find("mmc0");
+    fs_bdev = get_gendisk("mmc0");
     if (!fs_bdev) {
         uart_printf("[FAT32] ERROR: mmc0 block device not registered\n");
         return E_FAIL;

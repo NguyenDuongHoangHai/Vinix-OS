@@ -1,47 +1,48 @@
 /* ============================================================
  * block.c
  * ------------------------------------------------------------
- * Flat block-device registry.
+ * Flat gendisk registry — Linux's add_disk pattern at minimal
+ * scale. Single consumer per disk, no locking.
  * ============================================================ */
 
-/* INVARIANT: single consumer per device — no locking. Add a
+/* INVARIANT: single consumer per disk — no locking. Add a
  * spinlock if concurrent mounts ever appear. */
 
-#include "block.h"
+#include "vinix/blkdev.h"
 #include "string.h"
 #include "uart.h"
 #include "syscalls.h"
 
-#define MAX_BLOCK_DEVS 4
+#define MAX_DISKS 4
 
-static struct block_device *bdevs[MAX_BLOCK_DEVS];
-static int num_bdevs = 0;
+static struct gendisk *disks[MAX_DISKS];
+static int             num_disks = 0;
 
-int block_register(struct block_device *bdev)
+int add_disk(struct gendisk *disk)
 {
-    if (num_bdevs >= MAX_BLOCK_DEVS) return E_FAIL;
-    bdevs[num_bdevs++] = bdev;
+    if (num_disks >= MAX_DISKS) return E_FAIL;
+    disks[num_disks++] = disk;
     uart_printf("[BLK] registered %s (%u sectors x %u B)\n",
-                bdev->name, bdev->total_sectors, bdev->sector_size);
+                disk->name, disk->total_sectors, disk->sector_size);
     return E_OK;
 }
 
-struct block_device *block_find(const char *name)
+struct gendisk *get_gendisk(const char *name)
 {
-    for (int i = 0; i < num_bdevs; i++) {
-        if (bdevs[i] && strcmp(bdevs[i]->name, name) == 0) return bdevs[i];
+    for (int i = 0; i < num_disks; i++) {
+        if (disks[i] && strcmp(disks[i]->name, name) == 0) return disks[i];
     }
     return 0;
 }
 
-int block_read(struct block_device *bdev, uint32_t lba, uint32_t count, void *buf)
+int blk_read(struct gendisk *disk, uint32_t lba, uint32_t count, void *buf)
 {
-    if (!bdev || !bdev->ops || !bdev->ops->read_sectors) return E_FAIL;
-    return bdev->ops->read_sectors(bdev, lba, count, buf);
+    if (!disk || !disk->fops || !disk->fops->read_sectors) return E_FAIL;
+    return disk->fops->read_sectors(disk, lba, count, buf);
 }
 
-int block_write(struct block_device *bdev, uint32_t lba, uint32_t count, const void *buf)
+int blk_write(struct gendisk *disk, uint32_t lba, uint32_t count, const void *buf)
 {
-    if (!bdev || !bdev->ops || !bdev->ops->write_sectors) return E_PERM;
-    return bdev->ops->write_sectors(bdev, lba, count, buf);
+    if (!disk || !disk->fops || !disk->fops->write_sectors) return E_PERM;
+    return disk->fops->write_sectors(disk, lba, count, buf);
 }

@@ -8,13 +8,13 @@
 #define BUFFER_CACHE_H
 
 #include "types.h"
-#include "block.h"
+#include "vinix/blkdev.h"
 
 #define BCACHE_BUFFERS    64
 #define BCACHE_BLOCK_SIZE 512
 
 struct buffer_head {
-    struct block_device *bdev;
+    struct gendisk *bdev;
     uint32_t             lba;
     uint8_t              data[BCACHE_BLOCK_SIZE];
     bool                 valid;
@@ -26,11 +26,11 @@ void bcache_init(void);
 
 /* Get a buffer for (bdev, lba). Loads from disk if not cached.
  * Returns NULL on I/O error. */
-struct buffer_head *bread(struct block_device *bdev, uint32_t lba);
+struct buffer_head *bread(struct gendisk *bdev, uint32_t lba);
 
 void brelse(struct buffer_head *bh);
 void bmark_dirty(struct buffer_head *bh);
-void binvalidate(struct block_device *bdev, uint32_t lba);  /* evict, no write-back */
+void binvalidate(struct gendisk *bdev, uint32_t lba);  /* evict, no write-back */
 int  bsync(void);                                           /* flush all dirty */
 
 uint32_t bcache_hits(void);

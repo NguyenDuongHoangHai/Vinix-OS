@@ -442,32 +442,32 @@ int mmc_write_sectors(uint32_t lba, uint32_t count, const void *src)
  * Block-device registration
  * ============================================================ */
 
-#include "block.h"
+#include "vinix/blkdev.h"
 
-static int mmc_bdev_read(struct block_device *bdev, uint32_t lba,
+static int mmc_bdev_read(struct gendisk *bdev, uint32_t lba,
                          uint32_t count, void *buf)
 {
     (void)bdev;
     return mmc_read_sectors(lba, count, buf);
 }
 
-static int mmc_bdev_write(struct block_device *bdev, uint32_t lba,
+static int mmc_bdev_write(struct gendisk *bdev, uint32_t lba,
                           uint32_t count, const void *buf)
 {
     (void)bdev;
     return mmc_write_sectors(lba, count, buf);
 }
 
-static const struct block_operations mmc_blk_ops = {
+static const struct block_device_operations mmc_blk_ops = {
     .read_sectors  = mmc_bdev_read,
     .write_sectors = mmc_bdev_write,
 };
 
-static struct block_device mmc_bdev = {
+static struct gendisk mmc_bdev = {
     .name          = "mmc0",
     .sector_size   = 512,
     .total_sectors = 0,      /* filled in later if an inquiry is added */
-    .ops           = &mmc_blk_ops,
+    .fops          = &mmc_blk_ops,
     .priv          = 0,
 };
 
@@ -485,7 +485,7 @@ static int omap_hsmmc_probe(struct platform_device *pdev)
     uart_printf("[MMC] probing %s @ 0x%08x irq %d\n",
                 pdev->name, mem ? mem->start : 0, irq);
     int rc = mmc_init();
-    if (rc == E_OK) block_register(&mmc_bdev);
+    if (rc == E_OK) add_disk(&mmc_bdev);
     return rc;
 }
 
