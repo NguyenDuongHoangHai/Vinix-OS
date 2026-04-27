@@ -141,9 +141,17 @@
 #define ALE_PORTCTL1               (CPSW_ALE_BASE + 0x044u)
 #define ALE_ENABLE                 (1u << 31)
 #define ALE_CLEAR_TABLE            (1u << 30)
-#define ALE_BYPASS                 (1u << 4)
-#define ALE_P0_UNI_FLOOD           (1u << 27)
 #define ALE_PORT_FORWARD            0x3u
+
+/* ALE table write registers */
+#define ALE_UNKNOWNVLAN_REG        (CPSW_ALE_BASE + 0x018u)
+#define ALE_TABLE_CTRL_REG         (CPSW_ALE_BASE + 0x020u)
+#define ALE_TABLE_TBLW0            (CPSW_ALE_BASE + 0x034u)
+#define ALE_TABLE_TBLW1            (CPSW_ALE_BASE + 0x038u)
+#define ALE_TABLE_TBLW2            (CPSW_ALE_BASE + 0x03Cu)
+#define ALE_TABLE_WRITE            (1u << 31)
+/* ALE TBLW2 bits[31:30] = entry type. 0b01 = address entry (AM335x TRM Table 14-43). */
+#define ALE_ENTRY_UNICAST          (0x40000000u)
 
 /* IRQ number — AM335x TRM Table 6-1 */
 #define IRQ_CPSW_RX                 41u
@@ -259,11 +267,38 @@ static int cpsw_mac_init(void)
 
 static void cpsw_ale_init(void)
 {
+    /* Clear table, then enable ALE without bypass.
+     * Bypass skips destination MAC lookup and does NOT forward unknown
+     * unicast to the host port on AM335x CPSW3G — unicast frames are dropped. */
     mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_CLEAR_TABLE);
-    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS | ALE_P0_UNI_FLOOD);
+    mmio_write32(ALE_CONTROL, ALE_ENABLE);
+
+    /* Flood unknown unicast/multicast/broadcast to all 3 ports (including host port 0) */
+    mmio_write32(ALE_UNKNOWNVLAN_REG, 0x07070707u);
+
     mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
     mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD);
-    uart_printf("[CPSW] ALE bypass enabled\n");
+
+    /* Add permanent unicast entry: s_mac → port 0 (host).
+     * AM335x TRM Table 14-43 ALE address entry word layout:
+     *   TBLW0[31:0]  = mac[2..5] (big-endian packed)
+     *   TBLW1[15:0]  = mac[0..1]
+     *   TBLW2[31:30] = entry type 0b01 = address entry (ALE_ENTRY_UNICAST = 0x40000000)
+     *   TBLW2[3:2]   = port number (0 = host port) */
+    {
+        uint32_t w0 = ((uint32_t)s_mac[2] << 24) | ((uint32_t)s_mac[3] << 16) |
+                      ((uint32_t)s_mac[4] <<  8) |  (uint32_t)s_mac[5];
+        uint32_t w1 = ((uint32_t)s_mac[0] <<  8) |  (uint32_t)s_mac[1];
+        mmio_write32(ALE_TABLE_TBLW0, w0);
+        mmio_write32(ALE_TABLE_TBLW1, w1);
+        mmio_write32(ALE_TABLE_TBLW2, ALE_ENTRY_UNICAST);
+        mmio_write32(ALE_TABLE_CTRL_REG, ALE_TABLE_WRITE | 0u);
+        uart_printf("[CPSW] ALE entry0: w0=0x%08x w1=0x%08x w2=0x%08x\n",
+                    w0, w1, mmio_read32(ALE_TABLE_TBLW2));
+    }
+
+    uart_printf("[CPSW] ALE init: ALE_CTRL=0x%08x UNKNOWNVLAN=0x%08x\n",
+                mmio_read32(ALE_CONTROL), mmio_read32(ALE_UNKNOWNVLAN_REG));
 }
 
 static void cpsw_bd_init(void)
@@ -384,12 +419,21 @@ static void cpsw_rx_irq_init(void)
     mmio_write32(CPSW_WR_C0_TX_EN, 0);
     mmio_write32(CPDMA_TX_CONTROL, CPDMA_TX_EN);
 
-    /* AM335x TRM §14.3.8: CPDMA_SOFT_RESET resets ALE_CONTROL to 0.
-     * cpsw_ale_init() ran during cpsw_init() but the reset above cleared it.
-     * Re-apply here so frames are forwarded through ALE to CPDMA. */
-    mmio_write32(ALE_CONTROL, ALE_ENABLE | ALE_BYPASS | ALE_P0_UNI_FLOOD);
+    /* Re-apply ALE config in case SS reset clears ALE_CONTROL.
+     * Mirrors cpsw_ale_init() — same no-bypass + table entry. */
+    mmio_write32(ALE_CONTROL, ALE_ENABLE);
+    mmio_write32(ALE_UNKNOWNVLAN_REG, 0x07070707u);
     mmio_write32(ALE_PORTCTL0, ALE_PORT_FORWARD);
     mmio_write32(ALE_PORTCTL1, ALE_PORT_FORWARD);
+    {
+        uint32_t w0 = ((uint32_t)s_mac[2] << 24) | ((uint32_t)s_mac[3] << 16) |
+                      ((uint32_t)s_mac[4] <<  8) |  (uint32_t)s_mac[5];
+        uint32_t w1 = ((uint32_t)s_mac[0] <<  8) |  (uint32_t)s_mac[1];
+        mmio_write32(ALE_TABLE_TBLW0, w0);
+        mmio_write32(ALE_TABLE_TBLW1, w1);
+        mmio_write32(ALE_TABLE_TBLW2, ALE_ENTRY_UNICAST);
+        mmio_write32(ALE_TABLE_CTRL_REG, ALE_TABLE_WRITE | 0u);
+    }
 
     /* Clear DMASTATUS error bits — these persist across soft reset!
      * TRM §14.3.1.4: write 1 to clear RX_HOST_ERR bits [16:13] */
@@ -672,7 +716,7 @@ void cpsw_diag_dump(void)
     uart_printf("[CPSW_DIAG] RXINTSTATRAW=0x%08x  raw pending (unmasked)\n", rx_raw);
     uart_printf("[CPSW_DIAG] RXINTMASKED =0x%08x  masked pending (should match raw&mask)\n", rx_masked);
     uart_printf("[CPSW_DIAG] MACINVECTOR =0x%08x  bits[7:0]=RX_PEND channels\n", macvector);
-    uart_printf("[CPSW_DIAG] ALE_CTRL    =0x%08x  expect 0x80000010 (EN|BYPASS)\n", ale_ctrl);
+    uart_printf("[CPSW_DIAG] ALE_CTRL    =0x%08x  expect 0x80000000 (EN, no bypass)\n", ale_ctrl);
     uart_printf("[CPSW_DIAG] ALE_PCTL0   =0x%08x  expect 0x3 (CPU port FORWARD)\n", ale_pctl0);
     uart_printf("[CPSW_DIAG] ALE_PCTL1   =0x%08x  expect 0x3 (MII1 port FORWARD)\n", ale_pctl1);
     uart_printf("[CPSW_DIAG] SL1_MACCTRL =0x%08x  expect 0x21 (GMII_EN|FULLDUPLEX)\n", mac_ctrl);
