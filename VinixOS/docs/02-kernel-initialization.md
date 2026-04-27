@@ -2,7 +2,7 @@
 
 > **Phạm vi:** `kernel_main()` step-by-step từ khi trampoline nhảy vào đến khi `scheduler_start()` — không bao giờ return.
 > **Yêu cầu trước:** [01-boot-and-bringup.md](01-boot-and-bringup.md) — hiểu entry.S trampoline.
-> **Files liên quan:** `kernel/src/kernel/main.c`, `kernel/src/kernel/mmu/mmu.c`, `kernel/src/drivers/`
+> **Files liên quan:** `vinix-kernel/init/main.c`, `vinix-kernel/arch/arm/mm/mmu.c`, `vinix-kernel/drivers/`
 
 ---
 
@@ -47,7 +47,7 @@ uart_printf("VinixOS: Interactive Shell\n");
 mmu_init();
 ```
 
-File: `kernel/src/kernel/mmu/mmu.c`
+File: `vinix-kernel/arch/arm/mm/mmu.c`
 
 ```c
 void mmu_init(void) {

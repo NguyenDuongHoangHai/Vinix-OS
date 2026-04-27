@@ -193,7 +193,7 @@ make -C VinixOS
 Output:
 
 - `VinixOS/bootloader/MLO` — first-stage bootloader
-- `VinixOS/kernel/build/kernel.bin` — kernel với embedded init (PID 1 payload)
+- `VinixOS/vinix-kernel/build/kernel.bin` — kernel với embedded init (PID 1 payload)
 - `VinixOS/userspace/build/apps/<app>/<app>.elf` — 10 external utilities + init + shell
 
 #### Bước 3: Flash SD Card

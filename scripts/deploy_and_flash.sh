@@ -27,7 +27,7 @@ echo "========================================"
 echo " 1/3  Build kernel + userspace"
 echo "========================================"
 make -C "$TOPDIR/VinixOS/userspace"
-make -C "$TOPDIR/VinixOS/kernel"
+make -C "$TOPDIR/VinixOS/vinix-kernel"
 
 echo ""
 echo "========================================"

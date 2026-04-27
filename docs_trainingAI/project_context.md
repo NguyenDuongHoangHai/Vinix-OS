@@ -61,7 +61,7 @@ CrossCompiler/      ← Phase 2: Python cross compiler → ARMv7-A (HOÀN THÀNH
 ## Đang phát triển
 
 ### SD card driver trong kernel
-- Port `bootloader/src/mmc.c` vào `kernel/src/drivers/mmc.c`
+- Port `bootloader/src/mmc.c` vào `vinix-kernel/drivers/mmc/host/omap_hsmmc.c`
 - Thêm write support (`mmc_write_sectors`)
 - Tài liệu: `docs_trainingAI/drivers/sdcard/index.md`
 

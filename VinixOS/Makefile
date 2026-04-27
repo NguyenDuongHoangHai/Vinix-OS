@@ -29,11 +29,11 @@ userspace:
 	fi
 
 kernel: userspace
-	@if ! $(MAKE) -q -C kernel; then \
+	@if ! $(MAKE) -q -C vinix-kernel; then \
 		echo "========================================"; \
 		echo " Building Kernel                        "; \
 		echo "========================================"; \
-		$(MAKE) -C kernel; \
+		$(MAKE) -C vinix-kernel; \
 	fi
 
 clean:
@@ -43,6 +43,6 @@ clean:
 	@echo " Cleaning Userspace                     "
 	@$(MAKE) -C userspace clean
 	@echo " Cleaning Kernel                        "
-	@$(MAKE) -C kernel clean
+	@$(MAKE) -C vinix-kernel clean
 	@echo "========================================"
 	@echo " Clean Complete                         "

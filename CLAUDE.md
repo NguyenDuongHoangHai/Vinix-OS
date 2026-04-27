@@ -12,7 +12,7 @@ BẮT BUỘC tuân thủ mọi lúc. Không có ngoại lệ.
 
 **Memory — KHÔNG được:**
 
-- Dùng `malloc`/`free` — chỉ static allocation (kernel) hoặc `kmalloc/kfree` nội bộ (sau P1)
+- Dùng `malloc`/`free` userspace style — kernel dùng `kmalloc(size, GFP_KERNEL)` / `kfree`
 - Dùng buffer lớn trên stack (kernel stack nhỏ)
 
 **Standard Library — KHÔNG được:**
@@ -25,7 +25,7 @@ BẮT BUỘC tuân thủ mọi lúc. Không có ngoại lệ.
 
 - Truy cập register chỉ qua `mmio_read32(addr)` / `mmio_write32(addr, val)`
 - Lấy register address và bit definition từ AM335x TRM — KHÔNG được đoán
-- **KHÔNG hardcode peripheral address** trong `kernel/` — dùng `platform/bbb/` constants
+- **KHÔNG hardcode peripheral address** trong `vinix-kernel/kernel/` hay subsystem core — dùng `arch/arm/mach-omap2/include/mach/` constants
 
 **Toolchain — KHÔNG được:**
 
@@ -99,16 +99,36 @@ BẮT BUỘC tuân thủ mọi lúc. Không có ngoại lệ.
 
 **VinixOS** — bare-metal ARM platform tự xây từ đầu, chạy trực tiếp trên BeagleBone Black (SoC AM3358, Cortex-A8, ARMv7-A). Không Linux, không emulator, không SDK thương mại.
 
-### 4-layer HAL architecture
+### Linux-flat layout (vinix-kernel/)
 
 ```text
-kernel/           — generic C: mm, sched, vfs, proc, ipc (KHÔNG đụng khi port)
-arch/arm/         — ARMv7 CPU: MMU asm, context switch, exception vector, cache ops
-platform/bbb/     — AM3358 SoC + BBB board: memory map, clocks, IRQ numbers, device table
-drivers/          — driver impls (omap_uart, omap_hsmmc, cpsw, lcdc, ...)
+vinix-kernel/
+├── arch/arm/                  — ARMv7 CPU: entry, exceptions, MMU asm
+│   └── mach-omap2/            — AM3358 SoC + BBB board (was platform/bbb/)
+│       └── include/mach/      — memory map, IRQ numbers, board headers
+├── init/                      — main.c, payload.S, do_initcalls
+├── kernel/                    — generic C: sched, locking, irq, irqchip,
+│                                i2c, mmc, time, printk, tty (KHÔNG đụng khi port)
+├── drivers/                   — HW drivers, organized by Linux subsystem:
+│   ├── tty/serial/            (omap_serial.c)
+│   ├── irqchip/               (irq-omap-intc.c)
+│   ├── clocksource/           (timer-omap-dm.c)
+│   ├── mmc/host/              (omap_hsmmc.c)
+│   ├── i2c/busses/            (i2c-omap.c)
+│   ├── gpu/drm/{tilcdc,i2c}/  (lcdc, tda998x)
+│   ├── video/fbdev/           (fbmem.c, fbcon.c)
+│   ├── watchdog/              (omap_wdt.c)
+│   ├── base/                  (device.c, platform.c — driver model)
+│   └── char/                  (cdev registry)
+├── fs/                        — VFS, FAT32, devfs, procfs
+├── mm/, block/, lib/          — generic
+└── include/
+    └── vinix/                 — Linux-style subsystem headers (init, fs,
+                                cdev, blkdev, irqchip, i2c, mmc/host,
+                                serial_core, tty, fb, clocksource, ...)
 ```
 
-**Port sang SoC khác** = viết `platform/<new>/` + driver mới. `kernel/` không đổi dòng nào.
+**Port sang SoC khác** = viết `arch/arm/mach-<new>/` + driver mới. `kernel/` không đổi dòng nào.
 
 ### Component
 
@@ -149,7 +169,7 @@ make -C VinixOS kernel      # SAU  — kernel lấy shell mới nhất
 | L4 PER (INTC, DMTimer, I2C, MMC0) | `0x48000000` | identity | 4 MB, device, Strongly Ordered |
 | Framebuffer | `0x80800000` | identity | 4 MB, non-cacheable |
 
-Constants định nghĩa ở `platform/bbb/include/platform/memory.h` + `memmap.h`.
+Constants định nghĩa ở `vinix-kernel/arch/arm/mach-omap2/include/mach/memory.h` + `memmap.h`.
 
 ### Knowledge Base
 
@@ -221,7 +241,7 @@ Mọi abstraction (VFS, driver model, task/process, locking, memory) đi theo pa
 ### KHÔNG copy từ Linux
 
 - Không `sysfs` (dùng `/proc` ở P8)
-- Không Device Tree động (hardcoded `platform/bbb/devices.c`)
+- Không Device Tree động (hardcoded `vinix-kernel/arch/arm/mach-omap2/board-bbb.c`)
 - Không full cgroup, namespace, audit, SELinux
 - Không RCU (spinlock + wait queue đủ)
 - Không preemption level phức tạp (single priority)
@@ -426,7 +446,7 @@ static struct platform_driver omap_xxx_driver = {
 module_platform_driver(omap_xxx_driver);
 ```
 
-Device matching qua `pdev->name` vs `drv->name` — table ở `platform/bbb/devices.c`.
+Device matching qua `pdev->name` vs `drv->name` — table ở `vinix-kernel/arch/arm/mach-omap2/board-bbb.c`.
 
 ### Pre-requisite checklist
 
@@ -449,7 +469,26 @@ CRITICAL: Trước khi viết driver mới, verify TẤT CẢ item. THIẾU bấ
 
 **KHÔNG copy register address từ project khác** mà không verify với AM335x TRM.
 
-**Platform data flow:** address + IRQ đi từ `platform/bbb/devices.c` → `platform_device` → driver `probe()` qua `platform_get_resource`. Driver KHÔNG hardcode `UART0_BASE` nữa.
+**Platform data flow:** address + IRQ đi từ `vinix-kernel/arch/arm/mach-omap2/board-bbb.c` → `platform_device` → driver `probe()` qua `platform_get_resource`. Driver KHÔNG hardcode `UART0_BASE` nữa.
+
+### Subsystem class — driver mới phải dùng
+
+Sau Phase 2 build-out, mọi driver mới phải register qua subsystem class thay vì tự gọi `add_disk` / `register_chrdev` thẳng:
+
+| Driver loại | Subsystem header | Register fn |
+|---|---|---|
+| Serial / UART | `vinix/serial_core.h` | `uart_register_driver`, `uart_add_one_port` |
+| Char device | `vinix/cdev.h` | `cdev_register` (với `file_operations`) |
+| Block / disk | `vinix/blkdev.h` | `add_disk` (struct gendisk) |
+| I2C bus controller | `vinix/i2c.h` | `i2c_add_adapter` |
+| I2C client | `vinix/i2c.h` | dùng `i2c_transfer` |
+| MMC host | `vinix/mmc/host.h` | `mmc_alloc_host` + `mmc_add_host` |
+| Framebuffer | `vinix/fb.h` | `register_framebuffer` |
+| IRQ chip | `vinix/irqchip.h` | `irqchip_register` |
+| Clock event | `vinix/clocksource.h` | `clockevents_register_device` |
+| Network (P7) | `vinix/netdevice.h` (sẽ có) | `register_netdev` |
+
+Driver KHÔNG được tự tạo `gendisk`/`cdev` rồi gọi VFS trực tiếp. Phải qua subsystem core.
 
 ---
 

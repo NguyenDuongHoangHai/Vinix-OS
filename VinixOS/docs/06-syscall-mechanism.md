@@ -2,7 +2,7 @@
 
 > **Phạm vi:** Toàn bộ syscall path — từ user-side wrapper → SVC exception → kernel dispatcher → implementation → return về user.
 > **Yêu cầu trước:** [04-interrupt-and-exception.md](04-interrupt-and-exception.md) — SVC là 1 loại exception; [05-task-and-scheduler.md](05-task-and-scheduler.md) — `sys_yield()` gọi scheduler.
-> **Files liên quan:** `kernel/include/syscalls.h`, `kernel/src/kernel/core/svc_handler.c`, `kernel/src/arch/arm/exceptions/exception_entry.S`, `userspace/lib/syscall.c`
+> **Files liên quan:** `vinix-kernel/include/syscalls.h`, `vinix-kernel/arch/arm/kernel/svc_handler.c`, `vinix-kernel/arch/arm/exceptions/exception_entry.S`, `userspace/lib/syscall.c`
 
 ---
 
@@ -25,7 +25,7 @@ CPSR[I]  = clear (IRQ enabled) sau khi return
 
 ## Syscall Table
 
-File: `VinixOS/kernel/include/syscalls.h`
+File: `VinixOS/vinix-kernel/include/syscalls.h`
 
 | # | Tên | Arguments | Return | Mô Tả |
 |---|-----|-----------|--------|-------|
@@ -110,7 +110,7 @@ int read(void *buf, uint32_t len) {
 
 ## Kernel-side: SVC Entry
 
-File: `kernel/src/arch/arm/exceptions/exception_entry.S`
+File: `vinix-kernel/arch/arm/exceptions/exception_entry.S`
 
 ```asm
 svc_handler_entry:
@@ -142,7 +142,7 @@ svc_handler_entry:
 
 ### SVC Context Structure
 
-File: `kernel/src/kernel/core/svc_handler.c`
+File: `vinix-kernel/arch/arm/kernel/svc_handler.c`
 
 ```c
 struct svc_context {

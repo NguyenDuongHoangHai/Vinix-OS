@@ -2,7 +2,7 @@
 
 > **Phạm vi:** Toàn bộ quá trình boot từ power-on đến khi `kernel_main()` được gọi — ROM → MLO → entry.S.
 > **Yêu cầu trước:** Không có — đây là tài liệu đầu tiên cần đọc.
-> **Files liên quan:** `bootloader/src/main.c`, `kernel/src/arch/arm/entry/entry.S`, `kernel/src/arch/arm/mmu/mmu_enable.S`
+> **Files liên quan:** `bootloader/src/main.c`, `vinix-kernel/arch/arm/entry/entry.S`, `vinix-kernel/arch/arm/mm/mmu_enable.S`
 
 ---
 
@@ -194,7 +194,7 @@ asm volatile(
 
 ## Phase 3: Kernel Entry — `entry.S`
 
-File: `VinixOS/kernel/src/arch/arm/entry/entry.S`
+File: `VinixOS/vinix-kernel/arch/arm/entry/entry.S`
 
 Kernel entry point chạy tại Physical Address (PA) `0x80000000`, **MMU vẫn OFF**.
 
