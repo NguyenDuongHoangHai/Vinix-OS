@@ -64,6 +64,16 @@ void fb_puts_scaled(uint32_t x, uint32_t y, const char *str, uint16_t fg, uint16
 /** Fill a solid circle with center (cx, cy) and radius r */
 void fb_fillcircle(uint32_t cx, uint32_t cy, uint32_t r, uint16_t color);
 
+/** Framebuffer dimensions — exposed for fbcon and other consumers
+ * that need the geometry without owning lcdc directly. */
+uint32_t  fb_get_width(void);
+uint32_t  fb_get_height(void);
+uint16_t *fb_get_buffer(void);
+uint16_t  fb_get_console_bg(void);
+
+/** Returns 16 bytes of bitmap data for ASCII char (32-126); '?' fallback. */
+const uint8_t *font_8x16_glyph(char c);
+
 /* ============================================================
  * Console mode — auto cursor, newline, scroll
  * ============================================================ */
