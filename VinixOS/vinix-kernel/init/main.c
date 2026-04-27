@@ -14,6 +14,7 @@
 #include "mmu.h"
 #include "platform_device.h"
 #include "platform_drivers.h"
+#include "vinix/init.h"
 #include "page_alloc.h"
 #include "slab.h"
 #include "vmm.h"
@@ -61,10 +62,10 @@ void kernel_main(void)
     /* 1. Hardware Init */
     watchdog_disable();
 
-    /* Populate the platform bus, then register drivers in the order
-     * their hardware needs to come up. Each register() triggers a
-     * probe for the matching device. */
-    platform_init();
+    /* core_initcall — board file registers platform bus + devices.
+     * Driver registers below still manual; will migrate to
+     * device_initcall (do_initcalls(6)) when subsystem cores ship. */
+    do_initcalls(1);
     omap_uart_driver_register();
 
     uart_printf("\n\n");

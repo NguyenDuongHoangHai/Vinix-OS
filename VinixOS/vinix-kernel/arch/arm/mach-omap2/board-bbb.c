@@ -1,11 +1,13 @@
 /* ============================================================
- * platform/bbb/devices.c
+ * board-bbb.c
  * ------------------------------------------------------------
- * BeagleBone Black platform bus table.
+ * BeagleBone Black platform bus table — registers omap-uart,
+ * omap-intc, omap-dmtimer, omap-hsmmc with the platform bus.
  * ============================================================ */
 
 #include "platform_device.h"
 #include "mach/irqs.h"
+#include "vinix/init.h"
 
 static struct platform_device omap_uart0 = {
     .name   = "omap-uart",
@@ -42,10 +44,12 @@ static struct platform_device *bbb_devices[] = {
     &omap_hsmmc0,
 };
 
-void platform_init(void)
+static int __init bbb_platform_init(void)
 {
     bus_register(&platform_bus);
     for (unsigned i = 0; i < sizeof(bbb_devices) / sizeof(bbb_devices[0]); i++) {
         platform_device_register(bbb_devices[i]);
     }
+    return 0;
 }
+core_initcall(bbb_platform_init);

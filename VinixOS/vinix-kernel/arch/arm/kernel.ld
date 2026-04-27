@@ -100,9 +100,34 @@ SECTIONS
     }
 
     /* ========================================================
+     * Init region — code/data only needed during boot.
+     * Holds .init.text (__init fns), .init.data (__initdata),
+     * and the .initcall<N>.init function-pointer tables that
+     * do_initcalls() walks. Marked __init_begin/_end so a
+     * future free_initmem() can reclaim the pages.
+     * ======================================================== */
+    .init ALIGN(ADDR(.text) + SIZEOF(.text), 4) : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4))
+    {
+        __init_begin = .;
+        *(.init.text)
+        *(.init.data)
+        . = ALIGN(4);
+        __initcall_start = .;
+        __initcall1_start = .; KEEP(*(.initcall1.init)) __initcall1_end = .;
+        __initcall2_start = .; KEEP(*(.initcall2.init)) __initcall2_end = .;
+        __initcall3_start = .; KEEP(*(.initcall3.init)) __initcall3_end = .;
+        __initcall4_start = .; KEEP(*(.initcall4.init)) __initcall4_end = .;
+        __initcall5_start = .; KEEP(*(.initcall5.init)) __initcall5_end = .;
+        __initcall6_start = .; KEEP(*(.initcall6.init)) __initcall6_end = .;
+        __initcall7_start = .; KEEP(*(.initcall7.init)) __initcall7_end = .;
+        __initcall_end = .;
+        __init_end = .;
+    }
+
+    /* ========================================================
      * Initialized data
      * ======================================================== */
-    .data ALIGN(ADDR(.text) + SIZEOF(.text), 4) : AT(ALIGN(LOADADDR(.text) + SIZEOF(.text), 4))
+    .data ALIGN(ADDR(.init) + SIZEOF(.init), 4) : AT(ALIGN(LOADADDR(.init) + SIZEOF(.init), 4))
     {
         _data_start = .;
         *(.data*)

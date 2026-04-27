@@ -23,6 +23,7 @@ C_SRC = arch/arm/kernel/exception_handlers.c \
         arch/arm/mach-omap2/memmap.c \
         arch/arm/mach-omap2/board-bbb.c \
         init/main.c \
+        init/initcall.c \
         kernel/fork.c \
         kernel/wait.c \
         kernel/exec.c \

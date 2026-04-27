@@ -38,9 +38,6 @@ struct resource *platform_get_resource(struct platform_device *pdev,
 /* Convenience for the common single-IRQ case. */
 int platform_get_irq(struct platform_device *pdev, unsigned int index);
 
-/* Populate the BBB platform bus — defined in platform/bbb/devices.c. */
-void platform_init(void);
-
 /* Dump every platform bus device into an array of dev_info_t
  * entries. Returns number written. Stops at max_count. */
 int platform_list_devices(void *user_buf, uint32_t max_count);
