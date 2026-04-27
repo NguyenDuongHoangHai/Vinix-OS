@@ -394,7 +394,9 @@ static struct platform_driver omap_uart_driver = {
     .probe = omap_uart_probe,
 };
 
-int omap_uart_driver_register(void)
+#include "vinix/init.h"
+static int __init omap_uart_driver_init(void)
 {
     return platform_driver_register(&omap_uart_driver);
 }
+arch_initcall(omap_uart_driver_init);

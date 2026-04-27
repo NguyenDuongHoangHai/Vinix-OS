@@ -93,7 +93,9 @@ static struct platform_driver omap_intc_driver = {
     .probe = omap_intc_probe,
 };
 
-int omap_intc_driver_register(void)
+#include "vinix/init.h"
+static int __init omap_intc_driver_init(void)
 {
     return platform_driver_register(&omap_intc_driver);
 }
+subsys_initcall(omap_intc_driver_init);

@@ -63,10 +63,9 @@ void kernel_main(void)
     watchdog_disable();
 
     /* core_initcall — board file registers platform bus + devices.
-     * Driver registers below still manual; will migrate to
-     * device_initcall (do_initcalls(6)) when subsystem cores ship. */
+     * arch_initcall — early HW (uart for log output). */
     do_initcalls(1);
-    omap_uart_driver_register();
+    do_initcalls(3);
 
     uart_printf("\n\n");
     uart_printf("========================================\n");
@@ -102,7 +101,8 @@ void kernel_main(void)
 
     fb_init();
 
-    omap_intc_driver_register();
+    /* subsys_initcall — interrupt controller before timers/MMC. */
+    do_initcalls(4);
     irq_init();
     uart_enable_rx_interrupt();
 
