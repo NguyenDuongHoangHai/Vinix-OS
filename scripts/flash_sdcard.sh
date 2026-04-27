@@ -24,7 +24,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOPDIR="$(dirname "$SCRIPT_DIR")"
 MLO="$TOPDIR/VinixOS/bootloader/MLO"
-KERNEL="$TOPDIR/VinixOS/kernel/build/kernel.bin"
+KERNEL="$TOPDIR/VinixOS/vinix-kernel/build/kernel.bin"
 
 echo "========================================"
 echo " Update MLO + Kernel (RAW mode)"

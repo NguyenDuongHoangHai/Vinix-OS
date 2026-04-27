@@ -39,7 +39,7 @@ Khi exception xảy ra, CPU **tự động** thực hiện (không cần softwar
 
 ## Vector Table
 
-File: `VinixOS/kernel/src/arch/arm/entry/entry.S`
+File: `VinixOS/vinix-kernel/src/arch/arm/entry/entry.S`
 
 ```asm
 .section .text.vectors, "ax"

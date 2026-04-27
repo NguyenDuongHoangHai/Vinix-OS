@@ -194,7 +194,7 @@ asm volatile(
 
 ## Phase 3: Kernel Entry — `entry.S`
 
-File: `VinixOS/kernel/src/arch/arm/entry/entry.S`
+File: `VinixOS/vinix-kernel/src/arch/arm/entry/entry.S`
 
 Kernel entry point chạy tại Physical Address (PA) `0x80000000`, **MMU vẫn OFF**.
 

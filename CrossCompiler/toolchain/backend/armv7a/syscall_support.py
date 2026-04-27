@@ -6,7 +6,7 @@ Defines syscall numbers and generates syscall invocations
 from typing import Dict
 
 
-# Syscall numbers (must match kernel/include/syscalls.h)
+# Syscall numbers (must match vinix-kernel/include/syscalls.h)
 SYSCALL_NUMBERS: Dict[str, int] = {
     'write': 0,
     'exit': 1,
