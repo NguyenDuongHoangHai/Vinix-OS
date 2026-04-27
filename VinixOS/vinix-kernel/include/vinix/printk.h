@@ -1,18 +1,18 @@
 /* ============================================================
  * vinix/printk.h
  * ------------------------------------------------------------
- * Linux-style log facility wrappers — pr_info/pr_err/pr_warn/
- * pr_debug/pr_emerg + KERN_* loglevel string prefixes.
+ * printk() — kernel log entry point. KERN_* loglevel prefix
+ * strings are empty today; a future printk dispatcher can parse
+ * the leading "<N>" to filter by level.
  *
- * Today everything funnels into uart_printf; KERN_* prefixes
- * are empty so output is unchanged. A future printk dispatcher
- * can parse the prefix to filter by level.
+ * Implementation lives in kernel/printk/printk.c. Drivers should
+ * prefer pr_info / pr_err / pr_warn / pr_debug to plain printk.
  * ============================================================ */
 
 #ifndef VINIX_PRINTK_H
 #define VINIX_PRINTK_H
 
-#include "uart.h"
+void printk(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 #define KERN_EMERG   ""
 #define KERN_ALERT   ""
@@ -23,7 +23,6 @@
 #define KERN_INFO    ""
 #define KERN_DEBUG   ""
 
-#define printk(fmt, ...)         uart_printf(fmt, ##__VA_ARGS__)
 #define pr_emerg(fmt, ...)       printk(KERN_EMERG  fmt, ##__VA_ARGS__)
 #define pr_alert(fmt, ...)       printk(KERN_ALERT  fmt, ##__VA_ARGS__)
 #define pr_crit(fmt, ...)        printk(KERN_CRIT   fmt, ##__VA_ARGS__)

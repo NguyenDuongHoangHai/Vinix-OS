@@ -36,8 +36,11 @@ void uart_putc(char c);
 
 void uart_puts(const char *s);
 
-/* Format specifiers: %d %u %x %X %s %c %%. */
-void uart_printf(const char *fmt, ...);
+/* uart_printf is the historical name; new code uses printk
+ * (or pr_info / pr_err / ... from vinix/printk.h). Both expand
+ * to the same kernel-wide formatter. */
+#include "vinix/printk.h"
+#define uart_printf  printk
 
 /* ============================================================
  * Public API - Receive
