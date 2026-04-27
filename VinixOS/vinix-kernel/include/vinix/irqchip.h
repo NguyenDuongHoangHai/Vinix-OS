@@ -31,6 +31,7 @@ struct irq_chip {
     int  (*irq_set_type)(struct irq_data *d, uint32_t type);
 };
 
-int irqchip_register(struct irq_chip *chip);
+int               irqchip_register(struct irq_chip *chip);
+struct irq_chip  *irqchip_get_root(void);
 
 #endif /* VINIX_IRQCHIP_H */

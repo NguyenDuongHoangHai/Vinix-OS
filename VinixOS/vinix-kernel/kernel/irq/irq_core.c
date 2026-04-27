@@ -9,6 +9,7 @@
 #include "intc.h"
 #include "uart.h"
 #include "types.h"
+#include "vinix/irqchip.h"
 
 struct irq_desc {
     irq_handler_t  handler;
@@ -59,11 +60,25 @@ void free_irq(unsigned int irq, void *dev)
 
 void enable_irq(unsigned int irq)
 {
+    /* Route through registered irq_chip when one exists; falls back
+     * to direct INTC call early in boot before irqchip_register runs. */
+    struct irq_chip *chip = irqchip_get_root();
+    if (chip && chip->irq_unmask) {
+        struct irq_data d = { .irq = irq, .chip = chip };
+        chip->irq_unmask(&d);
+        return;
+    }
     intc_enable_irq(irq);
 }
 
 void disable_irq(unsigned int irq)
 {
+    struct irq_chip *chip = irqchip_get_root();
+    if (chip && chip->irq_mask) {
+        struct irq_data d = { .irq = irq, .chip = chip };
+        chip->irq_mask(&d);
+        return;
+    }
     intc_disable_irq(irq);
 }
 

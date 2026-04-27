@@ -78,6 +78,34 @@ void intc_set_priority(uint32_t irq_num, uint32_t priority)
 #include "platform_device.h"
 #include "platform_drivers.h"
 #include "uart.h"
+#include "vinix/irqchip.h"
+
+/* irq_chip vtable — kernel's enable_irq/disable_irq dispatch
+ * here once irqchip_register has run. ack/eoi go through the
+ * existing intc_eoi path; intc_get_active_irq feeds the IRQ
+ * dispatcher. */
+static void omap_intc_irq_mask(struct irq_data *d)
+{
+    intc_disable_irq(d->irq);
+}
+
+static void omap_intc_irq_unmask(struct irq_data *d)
+{
+    intc_enable_irq(d->irq);
+}
+
+static void omap_intc_irq_eoi(struct irq_data *d)
+{
+    (void)d;
+    intc_eoi();
+}
+
+static struct irq_chip omap_intc_chip = {
+    .name       = "omap-intc",
+    .irq_mask   = omap_intc_irq_mask,
+    .irq_unmask = omap_intc_irq_unmask,
+    .irq_eoi    = omap_intc_irq_eoi,
+};
 
 static int omap_intc_probe(struct platform_device *pdev)
 {
@@ -85,6 +113,7 @@ static int omap_intc_probe(struct platform_device *pdev)
     uart_printf("[INTC] probing %s @ 0x%08x\n",
                 pdev->name, mem ? mem->start : 0);
     intc_init();
+    irqchip_register(&omap_intc_chip);
     return 0;
 }
 
