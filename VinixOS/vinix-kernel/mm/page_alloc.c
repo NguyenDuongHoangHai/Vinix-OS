@@ -5,7 +5,7 @@
  * ============================================================ */
 
 #include "page_alloc.h"
-#include "platform/memory.h"
+#include "mach/memory.h"
 #include "assert.h"
 #include "uart.h"
 #include "types.h"

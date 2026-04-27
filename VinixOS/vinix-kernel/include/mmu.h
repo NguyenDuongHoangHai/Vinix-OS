@@ -14,8 +14,8 @@
 #define MMU_H
 
 #include "types.h"
-#include "platform/memory.h"
-#include "platform/memmap.h"
+#include "mach/memory.h"
+#include "mach/memmap.h"
 
 /* ============================================================
  * L1 Section Descriptor Bit Fields

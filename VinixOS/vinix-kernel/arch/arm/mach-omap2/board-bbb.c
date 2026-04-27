@@ -5,7 +5,7 @@
  * ============================================================ */
 
 #include "platform_device.h"
-#include "platform/irqs.h"
+#include "mach/irqs.h"
 
 static struct platform_device omap_uart0 = {
     .name   = "omap-uart",
