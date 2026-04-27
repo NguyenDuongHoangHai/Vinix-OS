@@ -280,7 +280,7 @@ shell.bin: shell.elf
 
 ### Embedding vào Kernel
 
-File: `VinixOS/kernel/src/kernel/payload.S`
+File: `VinixOS/vinix-kernel/init/payload.S`
 
 ```asm
 .section .rodata

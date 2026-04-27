@@ -2,7 +2,7 @@
 
 > **Phạm vi:** ARMv7-A MMU configuration, L1 page table, address translation, và memory layout chi tiết — từ Phase A (boot) đến Phase B (runtime).
 > **Yêu cầu trước:** [01-boot-and-bringup.md](01-boot-and-bringup.md) — MMU được enable trong entry.S.
-> **Files liên quan:** `kernel/src/kernel/mmu/mmu.c`, `kernel/src/arch/arm/mmu/mmu_enable.S`, `kernel/linker/kernel.ld`
+> **Files liên quan:** `vinix-kernel/arch/arm/mm/mmu.c`, `vinix-kernel/arch/arm/mm/mmu_enable.S`, `vinix-kernel/arch/arm/kernel.ld`
 
 ---
 
@@ -66,7 +66,7 @@ L1 Page Global Directory (PGD):
 
 ## Section Descriptor Flags
 
-File: `kernel/src/kernel/mmu/mmu.c`
+File: `vinix-kernel/arch/arm/mm/mmu.c`
 
 ```c
 /* Kernel RAM: Cached, Kernel-only (AP=01) */
@@ -158,7 +158,7 @@ void mmu_build_page_table_boot(uint32_t *pgd_pa) {
 
 ## MMU Enable Sequence
 
-Function: `mmu_enable()` — File: `kernel/src/arch/arm/mmu/mmu_enable.S`
+Function: `mmu_enable()` — File: `vinix-kernel/arch/arm/mm/mmu_enable.S`
 
 ```c
 void mmu_enable(uint32_t *pgd_base) {

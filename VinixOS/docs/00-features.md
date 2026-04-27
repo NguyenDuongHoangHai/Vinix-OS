@@ -22,13 +22,13 @@
 ## 2. Kiến trúc 4-layer HAL
 
 ```text
-kernel/           — generic C: mm, sched, vfs, proc, ipc
-arch/arm/         — ARMv7 CPU: MMU asm, context switch, exception vector, cache ops
-platform/bbb/     — AM3358 SoC + BBB board: memory map, clocks, IRQ, device table
-drivers/          — driver impls (uart, mmc, lcdc, tda19988, intc, timer, i2c, …)
+kernel/                — generic C: mm, sched, vfs, proc, ipc
+arch/arm/              — ARMv7 CPU: MMU asm, context switch, exception vector
+arch/arm/mach-omap2/   — AM3358 SoC + BBB board: memory map, clocks, IRQ, device table
+drivers/               — driver impls (uart, mmc, lcdc, tda19988, intc, timer, i2c, …)
 ```
 
-**Hệ quả portability:** port sang SoC ARMv7 khác = viết `platform/<new>/` + driver mới. `kernel/` không đổi 1 dòng.
+**Hệ quả portability:** port sang SoC ARMv7 khác = viết `arch/arm/mach-<new>/` + driver mới. `kernel/` không đổi 1 dòng.
 
 ---
 
@@ -200,7 +200,7 @@ int irq = platform_get_irq(pdev, 0);
 | `watchdog` | WDT1 disable (BBB boot requirement) |
 | `mbr` | MBR parse cho FAT32 partition |
 
-**Device enumeration qua `platform/bbb/devices.c`:** address + IRQ + clock id đi từ table → `probe()` qua `platform_get_resource`.
+**Device enumeration qua `arch/arm/mach-omap2/board-bbb.c`:** address + IRQ + clock id đi từ table → `probe()` qua `platform_get_resource`.
 
 ---
 
@@ -343,7 +343,7 @@ VinCC chỉ compile end-user C program. Kernel + vinixlibc + system tools dùng 
 - `slab_selftest()` — trong `mm/slab.c`
 - `vmm_selftest()` — trong `mm/vmm.c`
 - `sync_selftest()` — trong `sync/sync_selftest.c`
-- Integration harness [test/selftest.c](../kernel/src/kernel/test/selftest.c): `bcache_hit` + `procfs_read`
+- Integration harness [test/selftest.c](../vinix-kernel/lib/test/selftest.c): `bcache_hit` + `procfs_read`
 - Fail → `PANIC`
 
 ---

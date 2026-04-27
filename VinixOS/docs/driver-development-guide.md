@@ -24,7 +24,7 @@ Bạn chỉ chạm Layer 3. Hợp đồng giữa Layer 3 và Layer 2 là `struct
 
 ## 2. Interface contract (struct + helper)
 
-Kernel core sẽ define ở `kernel/include/linux/netdevice.h`. Signature dưới đây là CONTRACT.
+Kernel core sẽ define ở `vinix-kernel/include/vinix/netdevice.h`. Signature dưới đây là CONTRACT.
 
 ### `struct net_device_ops` — vtable bạn implement
 
@@ -87,7 +87,7 @@ void               skb_reserve(struct sk_buff *skb, int len);
 
 ## 3. Khai báo platform_device
 
-File: [VinixOS/platform/bbb/devices.c]
+File: [VinixOS/vinix-kernel/arch/arm/mach-omap2/board-bbb.c]
 
 ```c
 static struct platform_device bbb_cpsw0 = {
@@ -104,7 +104,7 @@ Append vào array `bbb_devices[]`. Kernel core tự register.
 
 ## 4. Skeleton driver file
 
-File: `VinixOS/vinix-kernel/src/drivers/net/ethernet/ti/cpsw.c`
+File: `VinixOS/vinix-kernel/drivers/net/ethernet/ti/cpsw.c`
 
 ```c
 /* ============================================================
