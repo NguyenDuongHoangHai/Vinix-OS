@@ -428,7 +428,8 @@ void lcdc_start_raster(void)
 }
 
 /* ============================================================
- * Public Accessors
+ * Public Accessors — legacy. New code reads from the
+ * registered fb_info via fb_get_buffer() / fb_get_width().
  * ============================================================ */
 
 uint16_t *lcdc_get_framebuffer(void)
@@ -449,4 +450,32 @@ uint32_t lcdc_get_height(void)
 uint32_t lcdc_get_pitch(void)
 {
     return DISPLAY_WIDTH * (DISPLAY_BPP / 8);
+}
+
+/* ============================================================
+ * fb_info wiring — register the LCDC framebuffer with fbdev so
+ * fbmem can read geometry through the subsystem instead of via
+ * direct lcdc_get_* accessors.
+ * ============================================================ */
+
+#include "vinix/fb.h"
+
+static struct fb_info tilcdc_fb_info = {
+    .var = {
+        .xres            = DISPLAY_WIDTH,
+        .yres            = DISPLAY_HEIGHT,
+        .bits_per_pixel  = DISPLAY_BPP,
+    },
+    .fix = {
+        .id              = "tilcdc",
+        .line_length     = DISPLAY_WIDTH * (DISPLAY_BPP / 8),
+        .smem_len        = DISPLAY_WIDTH * DISPLAY_HEIGHT * (DISPLAY_BPP / 8),
+    },
+};
+
+void lcdc_register_fb(void)
+{
+    tilcdc_fb_info.screen_base       = fb_pixels;
+    tilcdc_fb_info.fix.smem_start    = (uint32_t)fb_pixels;
+    register_framebuffer(&tilcdc_fb_info);
 }

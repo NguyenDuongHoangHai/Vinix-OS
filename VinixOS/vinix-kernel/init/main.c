@@ -100,6 +100,7 @@ void kernel_main(void)
     lcdc_start_raster();        /* Start pixel clock — TDA needs this for TMDS */
     tda19988_init();            /* Full TDA config with pixel clock present */
 
+    lcdc_register_fb();         /* fb_info -> fbdev so fb_init reads via subsystem */
     fb_init();
 
     /* subsys_initcall — interrupt controller before timers/MMC. */

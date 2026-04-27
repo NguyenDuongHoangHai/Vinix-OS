@@ -32,6 +32,10 @@ void lcdc_init(void);
  * receive pixel data the instant raster scan starts. */
 void lcdc_start_raster(void);
 
+/* Registers the LCDC framebuffer with fbdev as struct fb_info.
+ * Call after lcdc_start_raster() so fb_pixels is valid. */
+void lcdc_register_fb(void);
+
 /* Returns the first pixel address (palette header is skipped). */
 uint16_t *lcdc_get_framebuffer(void);
 
