@@ -167,7 +167,6 @@ void uart_puts(const char *s)
  * ============================================================ */
 
 #include "platform_device.h"
-#include "platform_drivers.h"
 
 static int omap_uart_probe(struct platform_device *pdev)
 {

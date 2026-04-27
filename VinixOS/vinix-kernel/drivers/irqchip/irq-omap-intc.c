@@ -76,7 +76,6 @@ void intc_set_priority(uint32_t irq_num, uint32_t priority)
  * ============================================================ */
 
 #include "platform_device.h"
-#include "platform_drivers.h"
 #include "uart.h"
 #include "vinix/irqchip.h"
 

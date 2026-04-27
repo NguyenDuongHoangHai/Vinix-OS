@@ -444,7 +444,6 @@ int mmc_write_sectors(uint32_t lba, uint32_t count, const void *src)
  * ============================================================ */
 
 #include "platform_device.h"
-#include "platform_drivers.h"
 #include "vinix/mmc/host.h"
 
 static int omap_hsmmc_probe(struct platform_device *pdev)
@@ -469,7 +468,9 @@ static struct platform_driver omap_hsmmc_driver = {
     .probe = omap_hsmmc_probe,
 };
 
-int omap_hsmmc_driver_register(void)
+#include "vinix/init.h"
+static int __init omap_hsmmc_driver_init(void)
 {
     return platform_driver_register(&omap_hsmmc_driver);
 }
+fs_initcall(omap_hsmmc_driver_init);

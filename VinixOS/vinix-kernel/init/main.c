@@ -13,7 +13,6 @@
 #include "intc.h"
 #include "mmu.h"
 #include "platform_device.h"
-#include "platform_drivers.h"
 #include "vinix/init.h"
 #include "page_alloc.h"
 #include "slab.h"
@@ -30,6 +29,7 @@ extern void sync_selftest(void);
 #include "mbr.h"
 #include "fat32.h"
 #include "buffer_cache.h"
+#include "vinix/blkdev.h"
 #include "selftest.h"
 #include "syscalls.h"
 #include "types.h"
@@ -112,7 +112,9 @@ void kernel_main(void)
     bcache_init();
     vfs_init();
 
-    if (omap_hsmmc_driver_register() != E_OK) {
+    /* fs_initcall — host probes via mmc-core, registers gendisk "mmc0". */
+    do_initcalls(5);
+    if (!get_gendisk("mmc0")) {
         uart_printf("[BOOT] ERROR: MMC driver probe failed\n");
         while (1);
     }

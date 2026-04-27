@@ -232,7 +232,6 @@ void delay_ms(uint32_t ms)
  * ============================================================ */
 
 #include "platform_device.h"
-#include "platform_drivers.h"
 
 static int omap_dmtimer_probe(struct platform_device *pdev)
 {
