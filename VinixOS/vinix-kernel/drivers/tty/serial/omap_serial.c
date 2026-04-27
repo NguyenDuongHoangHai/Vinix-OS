@@ -180,13 +180,13 @@ void uart_enable_rx_interrupt(void)
     mmio_write32(UART0_BASE + UART_IER, IER_RHR_IT);
     
     /* Register IRQ handler */
-    int ret = irq_register_handler(UART0_IRQ, uart_rx_irq_handler, NULL);
+    int ret = request_irq(UART0_IRQ, uart_rx_irq_handler, 0, "omap-uart", NULL);
     if (ret != 0) {
         return;  /* Registration failed */
     }
     
     /* Enable IRQ in interrupt controller */
-    intc_enable_irq(UART0_IRQ);
+    enable_irq(UART0_IRQ);
 }
 
 /* ============================================================

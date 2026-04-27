@@ -1,7 +1,8 @@
 /* ============================================================
  * irq_core.c
  * ------------------------------------------------------------
- * IRQ framework core implementation
+ * Generic IRQ dispatcher — request_irq / free_irq table backed
+ * by the INTC driver (drivers/irqchip).
  * ============================================================ */
 
 #include "irq.h"
@@ -9,109 +10,85 @@
 #include "uart.h"
 #include "types.h"
 
-/* ============================================================
- * IRQ Descriptor
- * ============================================================
- */
-
 struct irq_desc {
-    irq_handler_t handler;
-    void *data;
-    uint32_t count;
+    irq_handler_t  handler;
+    void          *dev;
+    const char    *name;
+    unsigned long  flags;
+    uint32_t       count;
 };
-
-/* ============================================================
- * IRQ Table
- * ============================================================
- */
 
 static struct irq_desc irq_table[MAX_IRQS];
 
-/* ============================================================
- * IRQ Framework Implementation
- * ============================================================
- */
-
 void irq_init(void)
 {
-    /* Clear IRQ table */
     for (int i = 0; i < MAX_IRQS; i++) {
         irq_table[i].handler = NULL;
-        irq_table[i].data = NULL;
-        irq_table[i].count = 0;
+        irq_table[i].dev     = NULL;
+        irq_table[i].name    = NULL;
+        irq_table[i].flags   = 0;
+        irq_table[i].count   = 0;
     }
 }
 
-int irq_register_handler(uint32_t irq_num, irq_handler_t handler, void *data)
+int request_irq(unsigned int irq, irq_handler_t handler,
+                unsigned long flags, const char *name, void *dev)
 {
-    /* Validate IRQ number */
-    if (irq_num >= MAX_IRQS) {
-        return -1;
-    }
-    
-    /* Validate handler */
-    if (handler == NULL) {
-        return -1;
-    }
-    
-    /* Check if already registered */
-    if (irq_table[irq_num].handler != NULL) {
-        return -1;
-    }
-    
-    /* Register handler */
-    irq_table[irq_num].handler = handler;
-    irq_table[irq_num].data = data;
-    irq_table[irq_num].count = 0;
-    
+    if (irq >= MAX_IRQS)        return -1;
+    if (handler == NULL)        return -1;
+    if (irq_table[irq].handler) return -1;
+
+    irq_table[irq].handler = handler;
+    irq_table[irq].dev     = dev;
+    irq_table[irq].name    = name;
+    irq_table[irq].flags   = flags;
+    irq_table[irq].count   = 0;
     return 0;
 }
 
-void irq_unregister_handler(uint32_t irq_num)
+void free_irq(unsigned int irq, void *dev)
 {
-    if (irq_num >= MAX_IRQS) {
-        return;
-    }
-    
-    /* Clear registration (keep count for statistics) */
-    irq_table[irq_num].handler = NULL;
-    irq_table[irq_num].data = NULL;
+    if (irq >= MAX_IRQS) return;
+    if (irq_table[irq].dev != dev) return;
+
+    irq_table[irq].handler = NULL;
+    irq_table[irq].dev     = NULL;
+    irq_table[irq].name    = NULL;
+    irq_table[irq].flags   = 0;
+}
+
+void enable_irq(unsigned int irq)
+{
+    intc_enable_irq(irq);
+}
+
+void disable_irq(unsigned int irq)
+{
+    intc_disable_irq(irq);
 }
 
 void irq_dispatch(void *ctx)
 {
-    /* Query INTC for active IRQ number */
-    uint32_t irq_num = intc_get_active_irq();
-    
-    /* Validate IRQ number */
-    if (irq_num >= MAX_IRQS) {
-        /* Spurious or invalid IRQ - still must send EOI */
+    (void)ctx;
+    uint32_t irq = intc_get_active_irq();
+
+    if (irq >= MAX_IRQS) {
         intc_eoi();
         return;
     }
-    
-    /* Check if handler is registered */
-    if (irq_table[irq_num].handler == NULL) {
-        /* Unhandled IRQ - still must send EOI */
+
+    if (irq_table[irq].handler == NULL) {
         intc_eoi();
         return;
     }
-    
-    /* Call registered handler */
-    irq_table[irq_num].handler(irq_table[irq_num].data);
-    
-    /* Update statistics */
-    irq_table[irq_num].count++;
-    
-    /* Send EOI to INTC (CRITICAL - must always be called) */
+
+    irq_table[irq].handler(irq_table[irq].dev);
+    irq_table[irq].count++;
     intc_eoi();
 }
 
-uint32_t irq_get_count(uint32_t irq_num)
+uint32_t irq_get_count(uint32_t irq)
 {
-    if (irq_num >= MAX_IRQS) {
-        return 0;
-    }
-    
-    return irq_table[irq_num].count;
+    if (irq >= MAX_IRQS) return 0;
+    return irq_table[irq].count;
 }

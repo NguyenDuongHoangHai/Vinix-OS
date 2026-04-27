@@ -49,21 +49,28 @@
 typedef void (*irq_handler_t)(void *data);
 
 /* ============================================================
- * IRQ Framework API
+ * IRQ Framework API — Linux-aligned
  * ============================================================ */
 
 void irq_init(void);
 
-/* Returns -1 if irq_num >= MAX_IRQS, handler is NULL, or the slot
- * is already taken. Must run before enabling the IRQ in INTC. */
-int irq_register_handler(uint32_t irq_num, irq_handler_t handler, void *data);
+/* Register a handler for irq. flags currently unused (reserved for
+ * IRQF_SHARED / IRQF_TRIGGER_*); name shows up in /proc/interrupts;
+ * dev is opaque cookie passed to handler. Returns 0 / -errno. */
+int request_irq(unsigned int irq, irq_handler_t handler,
+                unsigned long flags, const char *name, void *dev);
 
-/* Precondition: IRQ already disabled in INTC. */
-void irq_unregister_handler(uint32_t irq_num);
+/* Releases a handler previously registered with request_irq. dev must
+ * match the cookie used at registration. */
+void free_irq(unsigned int irq, void *dev);
+
+/* Unmask / mask an IRQ at the interrupt controller. */
+void enable_irq(unsigned int irq);
+void disable_irq(unsigned int irq);
 
 /* CRITICAL: always sends EOI — even for spurious/unhandled IRQs. */
 void irq_dispatch(void *ctx);
 
-uint32_t irq_get_count(uint32_t irq_num);
+uint32_t irq_get_count(uint32_t irq);
 
 #endif /* IRQ_H */

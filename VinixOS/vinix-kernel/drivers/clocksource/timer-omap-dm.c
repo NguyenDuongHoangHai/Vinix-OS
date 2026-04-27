@@ -148,11 +148,11 @@ void timer_init(void)
     while ((mmio_read32(DMTIMER2_BASE + TWPS) & TWPS_W_PEND_TCRR) && timeout--);
 
     mmio_write32(DMTIMER2_BASE + IRQENABLE_SET, IRQ_OVF_IT_FLAG);
-    if (irq_register_handler(TIMER2_IRQ, timer_irq_handler, NULL) != 0) {
-        uart_printf("[TIMER] irq_register_handler failed\n");
+    if (request_irq(TIMER2_IRQ, timer_irq_handler, 0, "omap-dmtimer", NULL) != 0) {
+        uart_printf("[TIMER] request_irq failed\n");
         return;
     }
-    intc_enable_irq(TIMER2_IRQ);
+    enable_irq(TIMER2_IRQ);
 
     mmio_write32(DMTIMER2_BASE + TCLR, TCLR_AR);
     timeout = 10000;
