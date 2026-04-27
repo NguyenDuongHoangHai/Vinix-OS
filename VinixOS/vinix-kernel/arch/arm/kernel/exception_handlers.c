@@ -168,7 +168,6 @@ void handle_prefetch_abort(struct exception_context *ctx)
     /* FAULT CONTAINMENT LOGIC */
     if ((ctx->spsr & 0x1F) == 0x10)
     {
-        struct task_struct *current = scheduler_current_task();
         uart_printf("[FAULT] User prefetch abort: task %d ('%s') — SIGSEGV\n",
                     current ? current->id : -1,
                     current ? current->name : "???");
@@ -265,7 +264,6 @@ void handle_data_abort(struct exception_context *ctx)
     /* FAULT CONTAINMENT LOGIC */
     if ((ctx->spsr & 0x1F) == 0x10)
     {
-        struct task_struct *current = scheduler_current_task();
         uart_printf("[FAULT] User data abort at PC=0x%08x DFAR=0x%08x: task %d ('%s') — SIGSEGV\n",
                     ctx->lr, dfar,
                     current ? current->id : -1,

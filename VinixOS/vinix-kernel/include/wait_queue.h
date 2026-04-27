@@ -17,7 +17,7 @@ typedef struct wait_queue_head {
 
 #define DECLARE_WAIT_QUEUE_HEAD(name)  wait_queue_head_t name = { .head = 0 }
 
-static inline void wait_queue_init(wait_queue_head_t *wq) { wq->head = 0; }
+static inline void init_waitqueue_head(wait_queue_head_t *wq) { wq->head = 0; }
 
 void wake_up(wait_queue_head_t *wq);
 
@@ -39,16 +39,16 @@ extern volatile bool need_reschedule;
                                  :: "r"(__we_flags) : "memory", "cc");     \
             break;                                                         \
         }                                                                  \
-        struct task_struct *__we_me = scheduler_current_task();            \
+        struct task_struct *__we_me = current;            \
         if (__we_me) {                                                     \
             __we_me->wait_next = (wq_var).head;                            \
             (wq_var).head     = __we_me;                                   \
-            __we_me->state    = TASK_STATE_BLOCKED;                        \
+            __we_me->state    = TASK_INTERRUPTIBLE;                        \
             need_reschedule   = true;                                      \
         }                                                                  \
         __asm__ __volatile__("msr cpsr_c, %0"                              \
                              :: "r"(__we_flags) : "memory", "cc");         \
-        scheduler_yield();                                                 \
+        schedule();                                                 \
     }                                                                      \
 } while (0)
 

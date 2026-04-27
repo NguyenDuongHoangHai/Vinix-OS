@@ -26,7 +26,7 @@ static int has_zombie_child(int ppid)
     for (uint32_t i = 0; i < MAX_TASKS; i++)
     {
         struct task_struct *t = tasks_array_get(i);
-        if (t != 0 && t->ppid == ppid && t->state == TASK_STATE_ZOMBIE)
+        if (t != 0 && t->ppid == ppid && t->state == TASK_ZOMBIE)
         {
             return 1;
         }
@@ -36,11 +36,11 @@ static int has_zombie_child(int ppid)
 
 void do_exit(int status)
 {
-    struct task_struct *me = scheduler_current_task();
+    struct task_struct *me = current;
     if (me == 0) return;
 
     me->exit_status = status;
-    me->state       = TASK_STATE_ZOMBIE;
+    me->state       = TASK_ZOMBIE;
 
     /* Wake every parent waiter — they individually re-check their own
      * children list. Simple pattern, fine at MAX_TASKS=5. */
@@ -51,7 +51,7 @@ void do_exit(int status)
 
     /* Yield — scheduler picks someone else. We never come back. */
     need_reschedule = true;
-    scheduler_yield();
+    schedule();
 
     /* Fallback if a bug lets us return. */
     while (1) { }
@@ -59,7 +59,7 @@ void do_exit(int status)
 
 int do_wait(int *status_out)
 {
-    struct task_struct *me = scheduler_current_task();
+    struct task_struct *me = current;
     if (me == 0) return -1;
 
     wait_event(parent_wq, has_zombie_child(me->pid));
@@ -67,7 +67,7 @@ int do_wait(int *status_out)
     for (uint32_t i = 0; i < MAX_TASKS; i++)
     {
         struct task_struct *t = tasks_array_get(i);
-        if (t != 0 && t->ppid == me->pid && t->state == TASK_STATE_ZOMBIE)
+        if (t != 0 && t->ppid == me->pid && t->state == TASK_ZOMBIE)
         {
             int pid = t->pid;
             int st  = t->exit_status;
@@ -104,7 +104,7 @@ int do_wait(int *status_out)
 
 int do_kill_by_pid(int pid, int exit_status)
 {
-    struct task_struct *me = scheduler_current_task();
+    struct task_struct *me = current;
     if (pid < 0 || (uint32_t)pid >= MAX_TASKS)
     {
         return -1;
@@ -120,13 +120,13 @@ int do_kill_by_pid(int pid, int exit_status)
         /* Untouchable: idle (ppid=-1) and the shell container. */
         return -1;
     }
-    if (t->state == TASK_STATE_ZOMBIE)
+    if (t->state == TASK_ZOMBIE)
     {
         return 0;
     }
 
     t->exit_status = exit_status;
-    t->state       = TASK_STATE_ZOMBIE;
+    t->state       = TASK_ZOMBIE;
 
     while (parent_wq.head != 0)
     {

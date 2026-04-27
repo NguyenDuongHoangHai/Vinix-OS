@@ -82,11 +82,10 @@ static int gen_mounts(void)
 static const char *state_str(uint32_t s)
 {
     switch (s) {
-    case TASK_STATE_READY:    return "READY";
-    case TASK_STATE_RUNNING:  return "RUNNING";
-    case TASK_STATE_BLOCKED:  return "BLOCKED";
-    case TASK_STATE_ZOMBIE:   return "ZOMBIE";
-    default:                  return "???";
+    case TASK_RUNNING:        return "R";
+    case TASK_INTERRUPTIBLE:  return "S";
+    case TASK_ZOMBIE:         return "Z";
+    default:                  return "?";
     }
 }
 

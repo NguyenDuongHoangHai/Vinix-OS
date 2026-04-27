@@ -37,10 +37,13 @@ void scheduler_tick(void);
 int scheduler_get_tasks(void *buf, uint32_t max_count);
 
 /* Performs the actual context switch in SVC mode. */
-void scheduler_yield(void);
+void schedule(void);
 
 /* Returns NULL if the scheduler hasn't started. */
 struct task_struct *scheduler_current_task(void);
+
+/* Linux-style — `current` expands to the active task pointer. */
+#define current  scheduler_current_task()
 
 /* Raw slot access for fork/wait; returns NULL on empty slot. */
 struct task_struct *tasks_array_get(uint32_t idx);

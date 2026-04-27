@@ -31,12 +31,12 @@ static void idle_task(void)
         }
 
         /* CRITICAL: must arm need_reschedule before yielding —
-         * scheduler_yield() is gated on the flag, so without this
+         * schedule() is gated on the flag, so without this
          * idle returns immediately and busy-loops until the next
          * tick (~10ms), producing visible shell I/O lag. */
         extern volatile bool need_reschedule;
         need_reschedule = true;
-        scheduler_yield();
+        schedule();
 
         /* WFI: sleep until next IRQ if yield didn't switch — keeps
          * idle from burning CPU when nothing else is READY. */
@@ -47,7 +47,7 @@ static void idle_task(void)
 struct task_struct *get_idle_task(void)
 {
     idle_task_struct.name = "idle";
-    idle_task_struct.state = TASK_STATE_READY;
+    idle_task_struct.state = TASK_RUNNING;
     idle_task_struct.id = 0;
 
     task_stack_init(&idle_task_struct, idle_task, idle_stack, IDLE_STACK_SIZE);

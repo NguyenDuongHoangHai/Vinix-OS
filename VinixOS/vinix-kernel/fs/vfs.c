@@ -18,7 +18,7 @@ static struct vfs_fd boot_fd_table[MAX_FDS];
 
 static struct vfs_fd *current_fds(void)
 {
-    struct task_struct *t = scheduler_current_task();
+    struct task_struct *t = current;
     return t ? t->files : boot_fd_table;
 }
 

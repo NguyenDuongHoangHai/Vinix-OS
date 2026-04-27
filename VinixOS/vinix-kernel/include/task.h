@@ -45,10 +45,13 @@ struct task_context {
  * Task Control Block
  * ============================================================ */
 
-#define TASK_STATE_READY    0
-#define TASK_STATE_RUNNING  1
-#define TASK_STATE_BLOCKED  2
-#define TASK_STATE_ZOMBIE   3
+/* Linux-aligned task states. RUNNING covers both "on CPU" and "on
+ * runqueue waiting" — current task is identified by current pointer
+ * comparison, not by separate state. */
+#define TASK_RUNNING         0x00
+#define TASK_INTERRUPTIBLE   0x01
+#define TASK_UNINTERRUPTIBLE 0x02
+#define TASK_ZOMBIE          0x20
 
 /* CRITICAL: fields up to `id` have frozen offsets — context_switch.S
  * reads context.sp / context.sp_usr by offset. Add new fields AFTER id. */
@@ -56,7 +59,7 @@ struct task_struct {
     struct task_context context;    /* Saved CPU state (72 bytes) */
     void *stack_base;               /* Pointer to stack bottom */
     uint32_t stack_size;            /* Stack size in bytes */
-    uint32_t state;                 /* TASK_STATE_* */
+    uint32_t state;                 /* TASK_RUNNING / INTERRUPTIBLE / ZOMBIE */
     const char *name;               /* Debug name */
     uint32_t id;                    /* Task ID */
 

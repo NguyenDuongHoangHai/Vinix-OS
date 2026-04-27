@@ -159,7 +159,7 @@ void kernel_main(void)
     scheduler_add_task(idle_ptr);
 
     shell_task.name = "init";
-    shell_task.state = TASK_STATE_READY;
+    shell_task.state = TASK_RUNNING;
     shell_task.id = 0;
 
     task_stack_init(&shell_task, (void (*)(void))USER_SPACE_VA,

@@ -90,7 +90,7 @@ int scheduler_add_task(struct task_struct *task)
     /* Add task to array */
     tasks[task_count] = task;
     task->id = task_count;
-    task->state = TASK_STATE_READY;
+    task->state = TASK_RUNNING;
 
     /* Process model: pid == slot index, no parent yet (fork overrides ppid). */
     task->pid         = task_count;
@@ -126,7 +126,7 @@ void scheduler_start(void)
 
     current_task = tasks[0];
     current_task_index = 0;
-    current_task->state = TASK_STATE_RUNNING;
+    current_task->state = TASK_RUNNING;
     scheduler_started = true;
 
     uart_printf("[SCHED] starting with %d task(s), first='%s'\n",
@@ -169,7 +169,7 @@ void scheduler_tick(void)
     /* Walk the sleep list, wake anyone whose wake_tick has passed. */
     sleep_tick();
 
-    /* IRQ-safe: just flag. Tasks pick this up via scheduler_yield(). */
+    /* IRQ-safe: just flag. Tasks pick this up via schedule(). */
     need_reschedule = true;
 }
 
@@ -190,7 +190,7 @@ void scheduler_terminate_task(uint32_t id)
     uart_printf("[SCHED] TERMINATING Task %d: '%s'\n", task->id, task->name);
     
     /* Mark as ZOMBIE */
-    task->state = TASK_STATE_ZOMBIE;
+    task->state = TASK_ZOMBIE;
     
     /* If current task is killing itself, yield immediately */
     if (current_task == task) {
@@ -198,12 +198,12 @@ void scheduler_terminate_task(uint32_t id)
         
         /* 
          * CRITICAL: We are likely in ABT/UND Mode (Exception Context).
-         * We MUST switch to SVC Mode before calling scheduler_yield/context_switch.
+         * We MUST switch to SVC Mode before calling schedule/context_switch.
          * Otherwise, context_switch will use SP_abt/und which is wrong for the next task.
          * 
          * Logic:
          * 1. Switch to SVC Mode (keeping IRQs disabled).
-         * 2. Call scheduler_yield().
+         * 2. Call schedule().
          * 
          * Note: We don't care about saving the current ABT stack/regs because 
          * this task is DEAD. We just need a safe environment to switch FROM.
@@ -215,18 +215,18 @@ void scheduler_terminate_task(uint32_t id)
         );
         
         need_reschedule = true; /* Force yield */
-        scheduler_yield();
+        schedule();
     }
 }
 
 /* ============================================================
- * scheduler_yield - Voluntary Task Switch
+ * schedule - Voluntary Task Switch
  * ============================================================
  * 
  * Called by tasks when they detect need_reschedule flag.
  * Runs in SVC mode (task context), so safe to switch.
  */
-void scheduler_yield(void)
+void schedule(void)
 {
     struct task_struct *prev_task;
     struct task_struct *next_task;
@@ -264,7 +264,7 @@ void scheduler_yield(void)
         search_count++;
 
         if (tasks[next_index] != NULL &&
-            tasks[next_index]->state == TASK_STATE_READY) {
+            tasks[next_index]->state == TASK_RUNNING) {
             next_task = tasks[next_index];
             break;
         }
@@ -272,10 +272,10 @@ void scheduler_yield(void)
 
     /* Sanity check + fallback */
     if (next_task == prev_task) {
-        if (prev_task->state == TASK_STATE_ZOMBIE) {
-            if (tasks[0] != NULL && tasks[0]->state != TASK_STATE_ZOMBIE) {
+        if (prev_task->state == TASK_ZOMBIE) {
+            if (tasks[0] != NULL && tasks[0]->state != TASK_ZOMBIE) {
                 uart_printf("[SCHED] Warning: No READY task found, forcing idle task READY to prevent deadlock\n");
-                tasks[0]->state = TASK_STATE_READY;
+                tasks[0]->state = TASK_RUNNING;
                 next_task = tasks[0];
                 next_index = 0;
             } else {
@@ -286,14 +286,14 @@ void scheduler_yield(void)
         }
     }
 
-    if (next_task->state != TASK_STATE_READY) {
+    if (next_task->state != TASK_RUNNING) {
         uart_printf("[SCHED] ERROR: Task %u not READY (state=%u)\n",
                     next_task->id, next_task->state);
         
         /* Fallback: Force idle to READY if it exists */
         if (tasks[0] != NULL) {
             uart_printf("[SCHED] Warning: Forcing idle task READY to prevent deadlock\n");
-            tasks[0]->state = TASK_STATE_READY;
+            tasks[0]->state = TASK_RUNNING;
             next_task = tasks[0];
             next_index = 0;
         } else {
@@ -302,10 +302,10 @@ void scheduler_yield(void)
     }
     
     /* Keep BLOCKED and ZOMBIE as-is; only a RUNNING task returns to READY. */
-    if (prev_task->state == TASK_STATE_RUNNING) {
-        prev_task->state = TASK_STATE_READY;
+    if (prev_task->state == TASK_RUNNING) {
+        prev_task->state = TASK_RUNNING;
     }
-    next_task->state = TASK_STATE_RUNNING;
+    next_task->state = TASK_RUNNING;
 
     /* Update global scheduler state */
     current_task_index = next_index;
@@ -336,7 +336,7 @@ int scheduler_add_forked(struct task_struct *task)
         return -1;
     }
     tasks[slot] = task;
-    task->state = TASK_STATE_READY;
+    task->state = TASK_RUNNING;
     task_count++;
     return (int)slot;
 }

@@ -117,7 +117,6 @@ static int32_t sys_write(struct svc_context *ctx)
 static int32_t sys_exit(struct svc_context *ctx)
 {
     int32_t status = (int32_t)ctx->r0;
-    struct task_struct *current = scheduler_current_task();
 
     uart_printf("[SVC] Task %d exiting with status %d\n", current->id, status);
 
@@ -152,7 +151,7 @@ static int32_t sys_exit(struct svc_context *ctx)
 static int32_t sys_yield(struct svc_context *ctx)
 {
     /*
-     * CRITICAL FIX: Set need_reschedule flag BEFORE calling scheduler_yield
+     * CRITICAL FIX: Set need_reschedule flag BEFORE calling schedule
      *
      * Without this, voluntary yields may be ignored if the flag was already
      * cleared by a previous context switch. This causes tasks to get stuck
@@ -160,15 +159,15 @@ static int32_t sys_yield(struct svc_context *ctx)
      *
      * Example failure scenario without this fix:
      * 1. Shell calls sys_yield() (need_reschedule=false from previous clear)
-     * 2. sys_yield() calls scheduler_yield()
-     * 3. scheduler_yield() sees need_reschedule=false, returns immediately
+     * 2. sys_yield() calls schedule()
+     * 3. schedule() sees need_reschedule=false, returns immediately
      * 4. Shell stuck in loop, never switches to Idle
      */
     extern volatile bool need_reschedule;
     need_reschedule = true;
 
     /* Voluntary Yield */
-    scheduler_yield();
+    schedule();
     return E_OK;
 }
 
@@ -448,13 +447,13 @@ void svc_handler(struct svc_context *ctx)
         break;
 
     case SYS_GETPID: {
-        struct task_struct *t = scheduler_current_task();
+        struct task_struct *t = current;
         result = t ? t->pid : -1;
         break;
     }
 
     case SYS_GETPPID: {
-        struct task_struct *t = scheduler_current_task();
+        struct task_struct *t = current;
         result = t ? t->ppid : -1;
         break;
     }

@@ -57,7 +57,7 @@ static void fork_build_child_stack(struct task_struct *child,
 
 int do_fork(struct svc_context *parent_ctx)
 {
-    struct task_struct *parent = scheduler_current_task();
+    struct task_struct *parent = current;
     if (parent == 0)
     {
         return -1;
@@ -147,7 +147,7 @@ int do_fork(struct svc_context *parent_ctx)
     child->pid          = slot;
     child->ppid         = parent->pid;
     child->exit_status  = 0;
-    child->state        = TASK_STATE_READY;
+    child->state        = TASK_RUNNING;
     child->pgd_pa       = pgd_pa;
     child->user_pa      = user_pa;
     child->user_order   = USER_MEM_PAGES_ORDER;

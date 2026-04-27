@@ -149,7 +149,7 @@ void task_stack_init(struct task_struct *task,
     
     task->stack_base = stack_base;
     task->stack_size = stack_size;
-    task->state = TASK_STATE_READY;
+    task->state = TASK_RUNNING;
     
     /* Verify stack safety */
     if (task->context.sp <= (uint32_t)stack_base) {

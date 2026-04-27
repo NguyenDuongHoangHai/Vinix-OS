@@ -18,7 +18,7 @@ void wake_up(wait_queue_head_t *wq)
     {
         wq->head     = t->wait_next;
         t->wait_next = 0;
-        t->state     = TASK_STATE_READY;
+        t->state     = TASK_RUNNING;
     }
 
     __asm__ __volatile__("msr cpsr_c, %0" :: "r"(flags) : "memory", "cc");

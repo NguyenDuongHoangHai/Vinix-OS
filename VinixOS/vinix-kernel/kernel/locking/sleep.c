@@ -31,19 +31,19 @@ void msleep(uint32_t ms)
     uint32_t flags;
     __asm__ __volatile__("mrs %0, cpsr\n\tcpsid i" : "=r"(flags) :: "memory");
 
-    struct task_struct *me = scheduler_current_task();
+    struct task_struct *me = current;
     if (me != 0)
     {
         me->wake_tick   = jiffies + ticks;
         me->sleep_next  = sleep_head;
         sleep_head      = me;
-        me->state       = TASK_STATE_BLOCKED;
+        me->state       = TASK_INTERRUPTIBLE;
         need_reschedule = true;
     }
 
     __asm__ __volatile__("msr cpsr_c, %0" :: "r"(flags) : "memory", "cc");
 
-    scheduler_yield();
+    schedule();
 }
 
 void sleep_tick(void)
@@ -59,7 +59,7 @@ void sleep_tick(void)
             *pp            = t->sleep_next;
             t->sleep_next  = 0;
             t->wake_tick   = 0;
-            t->state       = TASK_STATE_READY;
+            t->state       = TASK_RUNNING;
         }
         else
         {
