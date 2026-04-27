@@ -1,11 +1,13 @@
 /* ============================================================
  * devfs.c
  * ------------------------------------------------------------
- * Adapter exposing char_device callbacks through VFS ops.
+ * Adapter exposing struct cdev / file_operations through VFS.
+ * Builds an ephemeral struct file per call (no inode model yet).
  * ============================================================ */
 
 #include "devfs.h"
-#include "char_dev.h"
+#include "vinix/cdev.h"
+#include "vinix/fs.h"
 #include "uart.h"
 #include "syscalls.h"
 #include "wait_queue.h"
@@ -14,25 +16,30 @@
 /* ------------------------------------------------------------
  * /dev/null — silently discards writes, returns EOF on read.
  * ------------------------------------------------------------ */
-static int null_read(void *p, uint32_t off, void *buf, uint32_t len)
+static int null_read(struct file *f, void *buf, uint32_t len)
 {
-    (void)p; (void)off; (void)buf; (void)len;
+    (void)f; (void)buf; (void)len;
     return 0;
 }
 
-static int null_write(void *p, uint32_t off, const void *buf, uint32_t len)
+static int null_write(struct file *f, const void *buf, uint32_t len)
 {
-    (void)p; (void)off; (void)buf;
+    (void)f; (void)buf;
     return (int)len;
 }
+
+static const struct file_operations null_fops = {
+    .read  = null_read,
+    .write = null_write,
+};
 
 /* ------------------------------------------------------------
  * /dev/tty — wraps the UART. Read blocks on uart_rx_wq; write
  * expands \n → \r\n like the legacy sys_write path.
  * ------------------------------------------------------------ */
-static int tty_read(void *p, uint32_t off, void *buf, uint32_t len)
+static int tty_read(struct file *f, void *buf, uint32_t len)
 {
-    (void)p; (void)off;
+    (void)f;
     if (len == 0) return 0;
 
     char *out = buf;
@@ -44,9 +51,9 @@ static int tty_read(void *p, uint32_t off, void *buf, uint32_t len)
     return 1;
 }
 
-static int tty_write(void *p, uint32_t off, const void *buf, uint32_t len)
+static int tty_write(struct file *f, const void *buf, uint32_t len)
 {
-    (void)p; (void)off;
+    (void)f;
     const char *s = buf;
     for (uint32_t i = 0; i < len; i++) {
         if (s[i] == '\n') uart_putc('\r');
@@ -55,40 +62,60 @@ static int tty_write(void *p, uint32_t off, const void *buf, uint32_t len)
     return (int)len;
 }
 
+static const struct file_operations tty_fops = {
+    .read  = tty_read,
+    .write = tty_write,
+};
+
 /* ------------------------------------------------------------
- * VFS adapter — indexes into char_dev registry.
+ * VFS adapter — dispatches via fops with an ephemeral struct file.
+ * file_index identifies the cdev slot in the registry.
  * ------------------------------------------------------------ */
 static int devfs_lookup(const char *name)
 {
-    return char_dev_find(name);
+    return cdev_find(name);
 }
 
 static int devfs_read(int idx, uint32_t offset, void *buf, uint32_t len)
 {
-    const struct char_device *d = char_dev_at((uint32_t)idx);
-    if (!d || !d->read) return E_FAIL;
-    return d->read(d->priv, offset, buf, len);
+    const struct cdev *c = cdev_at((uint32_t)idx);
+    if (!c || !c->fops || !c->fops->read) return E_FAIL;
+
+    struct file f = {
+        .f_op         = c->fops,
+        .private_data = c->priv,
+        .f_pos        = offset,
+        .f_flags      = 0,
+    };
+    return c->fops->read(&f, buf, len);
 }
 
 static int devfs_write(int idx, uint32_t offset, const void *buf, uint32_t len)
 {
-    const struct char_device *d = char_dev_at((uint32_t)idx);
-    if (!d || !d->write) return E_PERM;
-    return d->write(d->priv, offset, buf, len);
+    const struct cdev *c = cdev_at((uint32_t)idx);
+    if (!c || !c->fops || !c->fops->write) return E_PERM;
+
+    struct file f = {
+        .f_op         = c->fops,
+        .private_data = c->priv,
+        .f_pos        = offset,
+        .f_flags      = 0,
+    };
+    return c->fops->write(&f, buf, len);
 }
 
 static int devfs_get_file_count(void)
 {
-    return char_dev_count();
+    return cdev_count();
 }
 
 static int devfs_get_file_info(int index, char *name_out, uint32_t *size_out)
 {
-    const struct char_device *d = char_dev_at((uint32_t)index);
-    if (!d) return E_NOENT;
+    const struct cdev *c = cdev_at((uint32_t)index);
+    if (!c) return E_NOENT;
 
     int i = 0;
-    while (d->name[i] && i < 31) { name_out[i] = d->name[i]; i++; }
+    while (c->name[i] && i < 31) { name_out[i] = c->name[i]; i++; }
     name_out[i] = '\0';
     if (size_out) *size_out = 0;
     return E_OK;
@@ -101,14 +128,14 @@ static int devfs_listdir(const char *path, void *entries, uint32_t max)
 
     file_info_t *out = (file_info_t *)entries;
     uint32_t written = 0;
-    int total = char_dev_count();
+    int total = cdev_count();
 
     for (int i = 0; i < total && written < max; i++) {
-        const struct char_device *d = char_dev_at((uint32_t)i);
-        if (!d) continue;
+        const struct cdev *c = cdev_at((uint32_t)i);
+        if (!c) continue;
 
         int k = 0;
-        while (d->name[k] && k < 31) { out[written].name[k] = d->name[k]; k++; }
+        while (c->name[k] && k < 31) { out[written].name[k] = c->name[k]; k++; }
         out[written].name[k] = '\0';
         out[written].size = 0;
         written++;
@@ -127,24 +154,22 @@ static struct vfs_operations devfs_ops = {
     .truncate       = 0,
 };
 
-static const struct char_device null_dev = {
-    .name  = "null",
-    .read  = null_read,
-    .write = null_write,
-    .priv  = 0,
+static const struct cdev null_cdev = {
+    .name = "null",
+    .fops = &null_fops,
+    .priv = 0,
 };
 
-static const struct char_device tty_dev = {
-    .name  = "tty",
-    .read  = tty_read,
-    .write = tty_write,
-    .priv  = 0,
+static const struct cdev tty_cdev = {
+    .name = "tty",
+    .fops = &tty_fops,
+    .priv = 0,
 };
 
 struct vfs_operations *devfs_init(void)
 {
-    char_dev_register(&tty_dev);
-    char_dev_register(&null_dev);
+    cdev_register(&tty_cdev);
+    cdev_register(&null_cdev);
     uart_printf("[DEVFS] registered /dev/tty, /dev/null\n");
     return &devfs_ops;
 }
