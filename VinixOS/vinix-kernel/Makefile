@@ -30,6 +30,7 @@ C_SRC = arch/arm/kernel/exception_handlers.c \
         kernel/irq/irq_core.c \
         kernel/i2c/i2c-core.c \
         kernel/irqchip/irqchip.c \
+        kernel/time/clockevents.c \
         kernel/mmc/core.c \
         kernel/mmc/mmc_block.c \
         kernel/printk/printk.c \
@@ -78,7 +79,7 @@ PAYLOAD_OBJ = $(BUILD_DIR)/payload.o
 OBJS        = $(ASM_OBJ) $(C_OBJ) $(PAYLOAD_OBJ)
 
 # VPATH lets Make find sources by basename across directory tree
-VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/irqchip:kernel/i2c:kernel/mmc:kernel/printk:kernel/tty/serial:kernel/sched:kernel/locking:drivers/char:drivers/base:drivers/video:drivers/video/fbdev:drivers/tty/serial:drivers/irqchip:drivers/clocksource:drivers/i2c/busses:drivers/mmc/host:drivers/watchdog:drivers/gpu/drm/tilcdc:drivers/gpu/drm/i2c:fs:mm:block:block/partitions:lib:lib/fonts:lib/test
+VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/irqchip:kernel/i2c:kernel/mmc:kernel/printk:kernel/time:kernel/tty/serial:kernel/sched:kernel/locking:drivers/char:drivers/base:drivers/video:drivers/video/fbdev:drivers/tty/serial:drivers/irqchip:drivers/clocksource:drivers/i2c/busses:drivers/mmc/host:drivers/watchdog:drivers/gpu/drm/tilcdc:drivers/gpu/drm/i2c:fs:mm:block:block/partitions:lib:lib/fonts:lib/test
 
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -march=armv7-a -mtune=cortex-a8 \

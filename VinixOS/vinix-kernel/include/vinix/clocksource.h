@@ -33,6 +33,7 @@ struct clock_event_device {
     void (*event_handler)    (struct clock_event_device *);
 };
 
-int clockevents_register_device(struct clock_event_device *dev);
+int                        clockevents_register_device(struct clock_event_device *dev);
+struct clock_event_device *clockevents_get_active(void);
 
 #endif /* VINIX_CLOCKSOURCE_H */

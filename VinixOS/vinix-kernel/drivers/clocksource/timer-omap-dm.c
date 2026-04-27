@@ -110,14 +110,29 @@ static void timer2_clock_enable(void)
     while (1);
 }
 
-/* INTC EOI runs in irq_dispatch() — handler only clears peripheral IRQ. */
+/* INTC EOI runs in irq_dispatch() — handler only clears peripheral IRQ
+ * and routes the tick through the registered clock_event_device. */
+#include "vinix/clocksource.h"
+
+static struct clock_event_device omap_dmtimer_clkevt;
+
+static int omap_dmtimer_set_periodic(struct clock_event_device *dev)
+{
+    (void)dev;
+    /* Hardware is configured for 10 ms periodic in timer_init();
+     * nothing to do here yet. Stub for future runtime mode switch. */
+    return 0;
+}
+
 static void timer_irq_handler(void *data)
 {
+    (void)data;
     mmio_write32(DMTIMER2_BASE + IRQSTATUS, IRQ_OVF_IT_FLAG);
 
     timer_ticks++;
 
-    scheduler_tick();
+    if (omap_dmtimer_clkevt.event_handler)
+        omap_dmtimer_clkevt.event_handler(&omap_dmtimer_clkevt);
 }
 
 void timer_init(void)
@@ -158,6 +173,14 @@ void timer_init(void)
     timeout = 10000;
     while ((mmio_read32(DMTIMER2_BASE + TWPS) & TWPS_W_PEND_TCLR) && timeout--);
     mmio_write32(DMTIMER2_BASE + TCLR, TCLR_AR | TCLR_ST);
+
+    /* Hand the tick over to the clockevents framework — IRQ
+     * handler now dispatches via clkevt->event_handler instead
+     * of calling scheduler_tick directly. */
+    omap_dmtimer_clkevt.name                = "omap-dmtimer";
+    omap_dmtimer_clkevt.rating              = 200;
+    omap_dmtimer_clkevt.set_state_periodic  = omap_dmtimer_set_periodic;
+    clockevents_register_device(&omap_dmtimer_clkevt);
 
     uart_printf("[TIMER] DMTimer2 running (%u ms tick, irq %u)\n", period_ms, TIMER2_IRQ);
 }
