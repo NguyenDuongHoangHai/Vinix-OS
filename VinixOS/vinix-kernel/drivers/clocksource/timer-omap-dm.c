@@ -226,7 +226,5 @@ static struct platform_driver omap_dmtimer_driver = {
     .probe = omap_dmtimer_probe,
 };
 
-int omap_dmtimer_driver_register(void)
-{
-    return platform_driver_register(&omap_dmtimer_driver);
-}
+#include "vinix/init.h"
+module_platform_driver(omap_dmtimer_driver);

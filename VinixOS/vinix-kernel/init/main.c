@@ -177,8 +177,10 @@ void kernel_main(void)
     timer_early_init();
     boot_screen_run();
 
-    /* 4. Now reconfigure timer for scheduler (10ms auto-reload + IRQ) */
-    omap_dmtimer_driver_register();
+    /* 4. Now reconfigure timer for scheduler — runs all device_initcall(s).
+     * Currently only omap_dmtimer; remaining drivers move here as their
+     * subsystem cores ship. */
+    do_initcalls(6);
 
     /* Final gate: integration selftest (bcache, procfs). Panics on fail. */
     selftest_run_all();
