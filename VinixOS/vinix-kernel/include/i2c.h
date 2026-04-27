@@ -34,4 +34,8 @@ int i2c_read_block(uint8_t slave_addr, uint8_t reg, uint8_t *buf, int len);
 /* Diagnostic — prints every responding address. */
 void i2c_scan(void);
 
+/* Register the I2C0 controller with the generic i2c-core as
+ * adapter nr 0. Call after i2c_init(). */
+void i2c_register_adapter(void);
+
 #endif /* I2C_H */

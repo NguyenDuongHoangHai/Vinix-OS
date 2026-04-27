@@ -94,6 +94,7 @@ void kernel_main(void)
      *
      * Order: I2C → LCDC (config + raster start) → TDA (full init with pixel clock) */
     i2c_init();
+    i2c_register_adapter();
     i2c_scan();
     lcdc_init();                /* Configure LCDC + DPLL (raster NOT started yet) */
     lcdc_start_raster();        /* Start pixel clock — TDA needs this for TMDS */

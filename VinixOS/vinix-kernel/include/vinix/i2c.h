@@ -45,8 +45,9 @@ struct i2c_client {
     void               *priv;
 };
 
-int i2c_add_adapter(struct i2c_adapter *adap);
-int i2c_transfer  (struct i2c_adapter *adap,
-                   struct i2c_msg *msgs, int count);
+int                 i2c_add_adapter(struct i2c_adapter *adap);
+int                 i2c_transfer  (struct i2c_adapter *adap,
+                                   struct i2c_msg *msgs, int count);
+struct i2c_adapter *i2c_get_adapter(int nr);
 
 #endif /* VINIX_I2C_H */

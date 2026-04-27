@@ -48,13 +48,42 @@
 static uint8_t g_current_page = 0xFF;   /* invalid sentinel */
 
 /* ============================================================
- * Low-level I2C primitives
+ * Low-level I2C primitives — go through generic i2c-core.
  * ============================================================ */
+
+#include "vinix/i2c.h"
+
+static struct i2c_adapter *tda_adap = 0;
+
+static int tda_xfer_write(uint8_t addr, uint8_t reg, uint8_t val)
+{
+    if (!tda_adap) tda_adap = i2c_get_adapter(0);
+    if (!tda_adap) return -1;
+
+    uint8_t buf[2] = { reg, val };
+    struct i2c_msg msg = {
+        .addr = addr, .flags = 0, .len = 2, .buf = buf,
+    };
+    return (i2c_transfer(tda_adap, &msg, 1) == 1) ? 0 : -1;
+}
+
+static int tda_xfer_read(uint8_t addr, uint8_t reg, uint8_t *val)
+{
+    if (!tda_adap) tda_adap = i2c_get_adapter(0);
+    if (!tda_adap) return -1;
+
+    uint8_t reg_buf = reg;
+    struct i2c_msg msgs[2] = {
+        { .addr = addr, .flags = 0,        .len = 1, .buf = &reg_buf },
+        { .addr = addr, .flags = I2C_M_RD, .len = 1, .buf = val      },
+    };
+    return (i2c_transfer(tda_adap, msgs, 2) == 2) ? 0 : -1;
+}
 
 static void tda_set_page(uint8_t page)
 {
     if (page != g_current_page) {
-        if (i2c_write_reg(TDA_HDMI_I2C_ADDR, TDA_CURPAGE_ADDR, page) != 0)
+        if (tda_xfer_write(TDA_HDMI_I2C_ADDR, TDA_CURPAGE_ADDR, page) != 0)
             uart_printf("[TDA] ERR: page switch to 0x%02x failed\n", page);
         g_current_page = page;
     }
@@ -63,13 +92,13 @@ static void tda_set_page(uint8_t page)
 static int tda_write(uint16_t reg, uint8_t val)
 {
     tda_set_page(TDA_PAGE(reg));
-    return i2c_write_reg(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
+    return tda_xfer_write(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
 }
 
 static int tda_read(uint16_t reg, uint8_t *val)
 {
     tda_set_page(TDA_PAGE(reg));
-    return i2c_read_reg(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
+    return tda_xfer_read(TDA_HDMI_I2C_ADDR, TDA_ADDR(reg), val);
 }
 
 /* Read-modify-write: set bits */
@@ -92,7 +121,7 @@ static void tda_clear(uint16_t reg, uint8_t bits)
 
 static int tda_cec_write(uint8_t reg, uint8_t val)
 {
-    return i2c_write_reg(TDA_CEC_I2C_ADDR, reg, val);
+    return tda_xfer_write(TDA_CEC_I2C_ADDR, reg, val);
 }
 
 static void tda_mdelay(volatile uint32_t ms)

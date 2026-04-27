@@ -527,3 +527,60 @@ void i2c_scan(void)
     else
         uart_printf("[I2C] Bus scan complete: %d device(s)\n", found);
 }
+
+/* ============================================================
+ * i2c_adapter wiring — exposes the AM335x I2C0 controller as a
+ * generic Linux-style bus. master_xfer maps i2c_msg sequences
+ * onto the existing register-style helpers above (i2c_read_reg /
+ * i2c_write_reg / i2c_read_block) — covering the two patterns
+ * client drivers actually use today:
+ *
+ *   1) single write msg, len = 1+N: byte 0 = reg addr, then N
+ *      values starting at that register
+ *   2) write reg-pointer (len = 1) followed by read msg (len = N):
+ *      multi-byte read starting at byte 0 of the read msg
+ *
+ * Other patterns return -1 — not a generic xfer engine yet.
+ * ============================================================ */
+
+#include "vinix/i2c.h"
+
+static int omap_i2c_xfer(struct i2c_adapter *adap,
+                         struct i2c_msg *msgs, int count)
+{
+    (void)adap;
+
+    if (count == 1 && !(msgs[0].flags & I2C_M_RD) && msgs[0].len >= 2) {
+        struct i2c_msg *m = &msgs[0];
+        uint8_t reg = m->buf[0];
+        for (uint16_t i = 1; i < m->len; i++) {
+            if (i2c_write_reg((uint8_t)m->addr, reg + i - 1, m->buf[i]) != 0)
+                return -1;
+        }
+        return 1;
+    }
+
+    if (count == 2
+        && !(msgs[0].flags & I2C_M_RD) && msgs[0].len == 1
+        && (msgs[1].flags & I2C_M_RD)) {
+        return (i2c_read_block((uint8_t)msgs[0].addr, msgs[0].buf[0],
+                               msgs[1].buf, msgs[1].len) == 0) ? 2 : -1;
+    }
+
+    return -1;
+}
+
+static const struct i2c_algorithm omap_i2c_algo = {
+    .master_xfer = omap_i2c_xfer,
+};
+
+static struct i2c_adapter omap_i2c_adapter = {
+    .name = "omap-i2c0",
+    .nr   = -1,
+    .algo = &omap_i2c_algo,
+};
+
+void i2c_register_adapter(void)
+{
+    i2c_add_adapter(&omap_i2c_adapter);
+}
