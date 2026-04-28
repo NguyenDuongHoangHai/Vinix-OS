@@ -86,6 +86,8 @@ void mmu_init(void)
                 PERIPH_L4_WKUP_PA, PERIPH_L4_WKUP_SECTIONS);
     uart_printf("[MMU] Peripheral L4_PER:  PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
                 PERIPH_L4_PER_PA, PERIPH_L4_PER_SECTIONS);
+    uart_printf("[MMU] Peripheral L4_FAST: PA 0x%x (%d MB) [Strongly Ordered, Identity]\n",
+                PERIPH_L4_FAST_PA, PERIPH_L4_FAST_SECTIONS);
     uart_printf("[MMU] Framebuffer:        PA 0x%x – 0x%x (%d MB) [Non-Cacheable, Identity]\n",
                 FB_PA_BASE, FB_PA_BASE + (FB_SECTIONS * MMU_SECTION_SIZE) - 1, FB_SECTIONS);
     uart_printf("[MMU] Identity mapping removed (VA 0x80000000 now unmapped)\n");
@@ -152,6 +154,9 @@ uint32_t mmu_new_pgd(void)
         uint32_t idx = (PERIPH_L4_PER_PA >> MMU_SECTION_SHIFT) + i;
         new_pgd[idx] = pgd[idx];
     }
+
+    uint32_t fast_idx = PERIPH_L4_FAST_PA >> MMU_SECTION_SHIFT;
+    new_pgd[fast_idx] = pgd[fast_idx];
 
     for (uint32_t i = 0; i < FB_SECTIONS; i++)
     {
@@ -230,6 +235,13 @@ mmu_build_page_table_boot(uint32_t *pgd_pa)
     for (i = 0; i < PERIPH_L4_PER_SECTIONS; i++)
     {
         pa = PERIPH_L4_PER_PA + (i * MMU_SECTION_SIZE);
+        pgd_pa[pa >> MMU_SECTION_SHIFT] = pa | MMU_SECT_PERIPHERAL;
+    }
+
+    /* L4_FAST: CPSW, MDIO (1MB) */
+    for (i = 0; i < PERIPH_L4_FAST_SECTIONS; i++)
+    {
+        pa = PERIPH_L4_FAST_PA + (i * MMU_SECTION_SIZE);
         pgd_pa[pa >> MMU_SECTION_SHIFT] = pa | MMU_SECT_PERIPHERAL;
     }
 
