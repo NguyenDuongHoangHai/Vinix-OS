@@ -38,6 +38,7 @@ extern void sync_selftest(void);
 #include "tda19988.h"
 #include "fb.h"
 #include "boot_screen.h"
+#include "net/core.h"
 /* ============================================================
  * User Space Payload (Defined in payload.S)
  * ============================================================ */
@@ -48,6 +49,7 @@ extern uint8_t _shell_payload_end;
  * User App Memory Definitions
  * ============================================================ */
 static struct task_struct shell_task;
+static struct task_struct net_rx_task;
 
 /* We use the end of the 1MB User Space (0x40000000 -> 0x40100000)
  * as the stack base for the User Task. Let's reserve the top 4KB. */
@@ -181,10 +183,21 @@ void kernel_main(void)
     timer_early_init();
     boot_screen_run();
 
-    /* 4. Now reconfigure timer for scheduler — runs all device_initcall(s).
-     * Currently only omap_dmtimer; remaining drivers move here as their
-     * subsystem cores ship. */
+    net_init();
+
+    /* 4. Now reconfigure timer for scheduler — runs all device_initcall(s). */
     do_initcalls(6);
+
+    net_configure();
+
+    void *net_stk = kmalloc(4096, GFP_KERNEL);
+    net_rx_task.name  = "net_rx";
+    net_rx_task.state = TASK_RUNNING;
+    net_rx_task.id    = 2;
+    task_stack_init(&net_rx_task, net_rx_task_entry,
+                    (void *)((uint32_t)net_stk + 4096), 4096);
+    if (scheduler_add_task(&net_rx_task) < 0)
+        uart_printf("[BOOT] Failed to add net_rx task\n");
 
     /* Final gate: integration selftest (bcache, procfs). Panics on fail. */
     selftest_run_all();

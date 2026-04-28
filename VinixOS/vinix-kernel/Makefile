@@ -70,7 +70,13 @@ C_SRC = arch/arm/kernel/exception_handlers.c \
         block/buffer_cache.c \
         lib/string.c \
         lib/format.c \
-        lib/test/selftest.c
+        lib/test/selftest.c \
+        drivers/net/phy/mdio.c \
+        drivers/net/ethernet/ti/cpsw.c \
+        net/core/net_core.c \
+        net/link/ether.c \
+        net/link/arp.c \
+        net/internet/ipv4.c
 
 # Object names — flatten under build/, basename only (relies on unique names)
 ASM_OBJ     = $(addprefix $(BUILD_DIR)/, $(notdir $(ASM_SRC:.S=.o)))
@@ -79,7 +85,7 @@ PAYLOAD_OBJ = $(BUILD_DIR)/payload.o
 OBJS        = $(ASM_OBJ) $(C_OBJ) $(PAYLOAD_OBJ)
 
 # VPATH lets Make find sources by basename across directory tree
-VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/irqchip:kernel/i2c:kernel/mmc:kernel/printk:kernel/time:kernel/tty/serial:kernel/sched:kernel/locking:drivers/char:drivers/base:drivers/video:drivers/video/fbdev:drivers/tty/serial:drivers/irqchip:drivers/clocksource:drivers/i2c/busses:drivers/mmc/host:drivers/watchdog:drivers/gpu/drm/tilcdc:drivers/gpu/drm/i2c:fs:mm:block:block/partitions:lib:lib/fonts:lib/test
+VPATH = arch/arm/entry:arch/arm/exceptions:arch/arm/scheduler:arch/arm/mm:arch/arm/kernel:arch/arm/mach-omap2:init:kernel:kernel/irq:kernel/irqchip:kernel/i2c:kernel/mmc:kernel/printk:kernel/time:kernel/tty/serial:kernel/sched:kernel/locking:drivers/char:drivers/base:drivers/video:drivers/video/fbdev:drivers/tty/serial:drivers/irqchip:drivers/clocksource:drivers/i2c/busses:drivers/mmc/host:drivers/watchdog:drivers/gpu/drm/tilcdc:drivers/gpu/drm/i2c:fs:mm:block:block/partitions:lib:lib/fonts:lib/test:drivers/net/phy:drivers/net/ethernet/ti:net/core:net/link:net/internet
 
 CFLAGS = -Wall -nostdlib -nostartfiles -ffreestanding \
          -march=armv7-a -mtune=cortex-a8 \
