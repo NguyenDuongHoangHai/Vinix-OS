@@ -37,11 +37,27 @@ static struct platform_device omap_hsmmc0 = {
     .clk_id = "mmc0",
 };
 
+static struct platform_device ti_cpsw0 = {
+    .name   = "ti-cpsw",
+    .base   = 0x4A100000,
+    .irq    = PLATFORM_IRQ_CPSW_RX,
+    .clk_id = "cpsw",
+};
+
+static struct platform_device omap_mdio0 = {
+    .name   = "omap-mdio",
+    .base   = 0x4A101000,
+    .irq    = 0,
+    .clk_id = "mdio",
+};
+
 static struct platform_device *bbb_devices[] = {
     &omap_uart0,
     &omap_intc,
     &omap_dmtimer2,
     &omap_hsmmc0,
+    &ti_cpsw0,
+    &omap_mdio0,
 };
 
 static int __init bbb_platform_init(void)
